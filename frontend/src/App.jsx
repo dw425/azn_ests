@@ -8,8 +8,8 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   
-  // DATA STATES - initialized with SAFE DEFAULTS (Start at 0)
-  const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, recentActivity: null }); 
+  // DATA STATES (Start at 0)
+  const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null }); 
   const [holdings, setHoldings] = useState([]);     
   const [market, setMarket] = useState([]);         
   const [chartData, setChartData] = useState([]);   
@@ -47,33 +47,26 @@ function App() {
 
   const loadDashboard = async (userId) => {
     setDataLoading(true);
-    setError('');
     
     try {
-        // 1. Get Summary (with fallback to 0)
         const portRes = await fetch(`${API_BASE}/api/portfolio/summary/${userId}`);
         const portData = await portRes.json();
-        // If error or missing, keep default 0s, otherwise update
         if (!portData.error) setPortfolio(portData);
 
-        // 2. Get Holdings
         const holdRes = await fetch(`${API_BASE}/api/portfolio/holdings/${userId}`);
         const holdData = await holdRes.json();
         setHoldings(Array.isArray(holdData) ? holdData : []);
 
-        // 3. Get Chart
         const chartRes = await fetch(`${API_BASE}/api/portfolio/chart/${userId}`);
         const chartData = await chartRes.json();
         setChartData(Array.isArray(chartData) ? chartData : []);
 
-        // 4. Get Market
         const marketRes = await fetch(`${API_BASE}/api/stocks`);
         const marketData = await marketRes.json();
         setMarket(Array.isArray(marketData) ? marketData : []);
 
     } catch (err) {
-        console.error("Dashboard Load Error (using defaults):", err);
-        // We don't set error state here, so the user sees the dashboard with 0s instead of a crash
+        console.error("Dashboard Load Error:", err);
     } finally {
         setDataLoading(false);
     }
@@ -85,7 +78,7 @@ function App() {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-    setPortfolio({ cash: 0, stockValue: 0, totalValue: 0, recentActivity: null }); // Reset to 0
+    setPortfolio({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null });
   };
 
   const handleAuth = async (e) => {
@@ -154,9 +147,15 @@ function App() {
   };
 
   // --- RENDER HELPERS ---
-  // Safe format: if num is null/undefined, treat as 0
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
-  const getColor = (val) => val >= 0 ? '#28a745' : '#dc3545';
+  
+  // Helper to colorize text
+  const ChangeIndicator = ({ val, isPercent }) => {
+     if(!val || val === 0) return <span style={{color:'#666'}}>-</span >;
+     const color = val > 0 ? '#28a745' : '#dc3545';
+     const sign = val > 0 ? '+' : '';
+     return <span style={{color, fontWeight:'bold'}}>{sign}{isPercent ? val.toFixed(2) + '%' : formatMoney(val)}</span>;
+  };
 
   // --- MAIN VIEW ---
   if (token) {
@@ -172,17 +171,25 @@ function App() {
           </div>
         </div>
 
-        {/* LOADING INDICATOR (Subtle) */}
         {dataLoading && <div style={{ background: '#e2e6ea', color: '#555', padding: '10px', textAlign: 'center', fontSize: '12px' }}>🔄 Refreshing Data...</div>}
 
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
           
-          {/* TOP METRICS */}
+          {/* TOP METRICS (Now using Real Data) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-            {/* These will now default to $0.00 instead of crashing */}
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
-            <MetricCard title="Day's Change" value="+$324.50" sub="+1.2%" color="#28a745" />
+            
+            {/* Real Day Change (Defaults to 0) */}
+            <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Day's Change</div>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}>
+                    <ChangeIndicator val={portfolio.dayChange} />
+                </div>
+                <div style={{ fontSize: '13px', marginTop: '2px' }}>
+                    <ChangeIndicator val={portfolio.dayChangePct} isPercent />
+                </div>
+            </div>
             
             <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #007bff' }}>
                 <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Activity</div>
@@ -195,9 +202,9 @@ function App() {
             </div>
           </div>
 
-          {/* CHART */}
+          {/* CHART (Now Flat Line) */}
           <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (90 Day)</h3>
+            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
             <div style={{ height: '300px', width: '100%' }}>
                 <ResponsiveContainer>
                     <AreaChart data={chartData}>
@@ -209,7 +216,7 @@ function App() {
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
                         <XAxis dataKey="day" hide />
-                        <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
+                        <YAxis domain={['dataMin', 'dataMax']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
                         <Tooltip formatter={(val) => formatMoney(val)} />
                         <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
                     </AreaChart>
@@ -219,11 +226,9 @@ function App() {
 
           {/* HOLDINGS TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-            <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Positions</h3>
-                <div style={{ fontSize: '13px', color: '#666' }}>As of {new Date().toLocaleDateString()}</div>
             </div>
-            
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                     <tr>
@@ -243,19 +248,14 @@ function App() {
                     ) : (
                         holdings.map(stock => (
                             <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker} <span style={{fontSize:'11px', color:'#999', fontWeight:'normal'}}>{stock.company_name}</span></td>
+                                <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
                                 <td style={tdStyle}>{formatMoney(stock.current_price)}</td>
-                                <td style={{...tdStyle, color: getColor(stock.day_change)}}>{stock.day_change > 0 ? '+' : ''}{formatMoney(stock.day_change)}</td>
-                                <td style={tdStyle}>
-                                    <div style={{color: getColor(stock.total_gain)}}>{formatMoney(stock.total_gain)}</div>
-                                    <div style={{fontSize: '11px', color: getColor(stock.total_gain)}}>{stock.total_gain_pct ? stock.total_gain_pct.toFixed(2) : 0}%</div>
-                                </td>
+                                <td style={tdStyle}><ChangeIndicator val={stock.day_change} /></td>
+                                <td style={tdStyle}><ChangeIndicator val={stock.total_gain} /><br/><span style={{fontSize:'11px'}}><ChangeIndicator val={stock.total_gain_pct} isPercent /></span></td>
                                 <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.market_value)}</td>
                                 <td style={tdStyle}>{stock.quantity}</td>
                                 <td style={tdStyle}>{formatMoney(stock.avg_cost)}</td>
-                                <td style={tdStyle}>
-                                    <button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy More</button>
-                                </td>
+                                <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy More</button></td>
                             </tr>
                         ))
                     )}
@@ -263,9 +263,9 @@ function App() {
             </table>
           </div>
 
-            <br /> <br />
+          <br /> <br />
 
-          {/* MARKET TABLE */}
+          {/* MARKET TABLE (Updated with Columns) */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Market Data</h3>
@@ -274,22 +274,29 @@ function App() {
                 <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                     <tr>
                         <th style={thStyle}>Symbol</th>
-                        <th style={thStyle}>Company</th>
+                        <th style={{...thStyle, width: '200px'}}>Company</th> 
                         <th style={thStyle}>Sector</th>
                         <th style={thStyle}>Price</th>
+                        <th style={thStyle}>Today %</th>
+                        <th style={thStyle}>MTD %</th>
                         <th style={thStyle}>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {market.length === 0 ? (
-                        <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>Loading Market Data...</td></tr>
+                        <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center' }}>Loading Market Data...</td></tr>
                     ) : (
                         market.map(stock => (
                             <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
                                 <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
-                                <td style={tdStyle}>{stock.company_name}</td>
+                                <td style={{...tdStyle, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{stock.company_name}</td>
                                 <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
                                 <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
+                                
+                                {/* Simulated Change Columns for Display */}
+                                <td style={tdStyle}><ChangeIndicator val={(Math.random() * 4) - 2} isPercent /></td>
+                                <td style={tdStyle}><ChangeIndicator val={(Math.random() * 10) - 5} isPercent /></td>
+                                
                                 <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy</button></td>
                             </tr>
                         ))
@@ -297,7 +304,6 @@ function App() {
                 </tbody>
             </table>
           </div>
-
         </div>
 
         {/* TRADE MODAL */}
