@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stock Data Generator</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; max-width: 600px; margin: 0 auto; background: #f4f4f9; }
+        h2 { color: #333; }
+        label { display: block; margin-top: 15px; font-weight: bold; }
+        input { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { margin-top: 20px; width: 100%; padding: 12px; background: #28a745; color: white; border: none; cursor: pointer; font-size: 16px; border-radius: 4px; }
+        button:hover { background: #218838; }
+        #status { margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd; min-height: 50px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h2>⚡️ Stock Data Remote Control</h2>
+    
+    <label><strong>Your Render URL:</strong></label>
+    <input type="text" id="url" placeholder="https://stock-trading-api-xxxx.onrender.com">
+    
+    <label><strong>Target Year:</strong></label>
+    <input type="number" id="year" value="2026">
+
+    <div style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+            <label>Start Month (1=Feb):</label>
+            <input type="number" id="start" value="1">
+        </div>
+        <div style="flex: 1;">
+            <label>End Month (11=Dec):</label>
+            <input type="number" id="end" value="2">
+        </div>
+    </div>
+
+    <button onclick="generateData()">Generate Price Data</button>
+    
+    <div id="status">Waiting for input...</div>
+
+    <script>
+        async function generateData() {
+            const urlRaw = document.getElementById('url').value;
+            const url = urlRaw.replace(/\/$/, ""); // remove trailing slash if present
+            const year = document.getElementById('year').value;
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+            const statusDiv = document.getElementById('status');
+
+            if (!url) { alert("Please paste your Render URL first!"); return; }
+
+            statusDiv.innerHTML = "⏳ <strong>Working...</strong><br>Generating 2-minute interval data. This takes about 30-60 seconds.";
+            statusDiv.style.backgroundColor = "#fff3cd";
+
+            try {
+                const response = await fetch(`${url}/api/admin/generate-prices`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        year: parseInt(year), 
+                        startMonth: parseInt(start), 
+                        endMonth: parseInt(end) 
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.innerHTML = `✅ <strong>Success!</strong><br>${data.message}`;
+                    statusDiv.style.backgroundColor = "#d4edda";
+                } else {
+                    statusDiv.innerHTML = `❌ <strong>Error:</strong><br>${data.error || "Unknown error"}`;
+                    statusDiv.style.backgroundColor = "#f8d7da";
+                }
+            } catch (err) {
+                statusDiv.innerHTML = `❌ <strong>Network Error:</strong><br>${err.message}<br><small>Check if the URL is correct and the server is live.</small>`;
+                statusDiv.style.backgroundColor = "#f8d7da";
+            }
+        }
+    </script>
+</body>
+</html>

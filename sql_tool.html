@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SQL Runner</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #222; color: #ddd; }
+        textarea { width: 100%; height: 150px; background: #333; color: #fff; border: 1px solid #555; padding: 10px; font-family: monospace; font-size: 14px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        #results { margin-top: 20px; white-space: pre-wrap; background: #111; padding: 15px; border: 1px solid #444; min-height: 100px; }
+        .preset { background: #444; color: #fff; border: none; padding: 5px 10px; margin-right: 5px; cursor: pointer; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>🚀 SQL Command Center</h2>
+    
+    <div style="margin-bottom: 10px;">
+        <button class="preset" onclick="setQuery('SELECT * FROM users LIMIT 5')">Show Users</button>
+        <button class="preset" onclick="setQuery('SELECT * FROM stocks LIMIT 5')">Show Stocks</button>
+        <button class="preset" onclick="setQuery(`SELECT table_name, column_name, data_type \nFROM information_schema.columns \nWHERE table_schema = 'public' \nORDER BY table_name;`)">SHOW FULL SCHEMA</button>
+    </div>
+
+    <textarea id="query">SELECT * FROM users LIMIT 5</textarea>
+    <br>
+    <button onclick="runSQL()">Execute Query</button>
+    
+    <div id="results">Results will appear here...</div>
+
+    <script>
+        const URL = "https://stock-trading-api-fcp5.onrender.com/api/admin/run-sql";
+
+        function setQuery(q) {
+            document.getElementById('query').value = q;
+        }
+
+        async function runSQL() {
+            const query = document.getElementById('query').value;
+            const resDiv = document.getElementById('results');
+            resDiv.innerText = "Running...";
+
+            try {
+                const res = await fetch(URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resDiv.innerText = "❌ ERROR:\n" + data.error;
+                    resDiv.style.color = "#ff6b6b";
+                } else {
+                    resDiv.innerText = JSON.stringify(data.rows, null, 2);
+                    resDiv.style.color = "#51cf66";
+                }
+            } catch (err) {
+                resDiv.innerText = "Network Error: " + err.message;
+            }
+        }
+    </script>
+</body>
+</html>

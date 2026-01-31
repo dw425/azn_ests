@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Auth Tester</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; background: #f4f4f9; }
+        .container { display: flex; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); flex: 1; }
+        h2 { margin-top: 0; color: #333; }
+        label { display: block; margin-top: 10px; font-weight: bold; font-size: 14px; }
+        input { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 10px; margin-top: 15px; border: none; color: white; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        .btn-reg { background: #007bff; }
+        .btn-reg:hover { background: #0056b3; }
+        .btn-log { background: #28a745; }
+        .btn-log:hover { background: #218838; }
+        #status { margin-top: 20px; padding: 15px; background: #fff; border: 1px solid #ddd; border-radius: 4px; min-height: 50px; }
+        .url-box { margin-bottom: 20px; background: #e9ecef; padding: 15px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+    <div class="url-box">
+        <label><strong>🔴 Your Render URL:</strong></label>
+        <input type="text" id="url" value="https://stock-trading-api-fcp5.onrender.com" readonly style="background: #e9ecef; color: #555;">
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>📝 1. Register</h2>
+            <label>Username:</label>
+            <input type="text" id="reg-user" placeholder="trader1">
+            <label>Email:</label>
+            <input type="email" id="reg-email" placeholder="test@test.com">
+            <label>Password:</label>
+            <input type="password" id="reg-pass" placeholder="secret123">
+            <button class="btn-reg" onclick="register()">Create Account</button>
+        </div>
+
+        <div class="card">
+            <h2>🔑 2. Login</h2>
+            <label>Username:</label>
+            <input type="text" id="log-user" placeholder="trader1">
+            <label>Password:</label>
+            <input type="password" id="log-pass" placeholder="secret123">
+            <button class="btn-log" onclick="login()">Test Login</button>
+        </div>
+    </div>
+
+    <div id="status">Waiting for action...</div>
+
+    <script>
+        async function register() {
+            const urlRaw = document.getElementById('url').value;
+            const url = urlRaw.replace(/\/$/, ""); 
+            const status = document.getElementById('status');
+
+            status.innerHTML = "⏳ Registering...";
+            
+            try {
+                const res = await fetch(`${url}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('reg-user').value,
+                        email: document.getElementById('reg-email').value,
+                        password: document.getElementById('reg-pass').value
+                    })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    status.innerHTML = `✅ <strong>Success!</strong><br>User Created: ${data.user.username}<br>Wallet created with $10,000.`;
+                    status.style.backgroundColor = "#d4edda";
+                } else {
+                    status.innerHTML = `❌ <strong>Error:</strong> ${data.error}`;
+                    status.style.backgroundColor = "#f8d7da";
+                }
+            } catch (err) {
+                status.innerHTML = `❌ <strong>Network Error:</strong> ${err.message}`;
+                status.style.backgroundColor = "#f8d7da";
+            }
+        }
+
+        async function login() {
+            const urlRaw = document.getElementById('url').value;
+            const url = urlRaw.replace(/\/$/, ""); 
+            const status = document.getElementById('status');
+
+            status.innerHTML = "⏳ Logging in...";
+            
+            try {
+                const res = await fetch(`${url}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('log-user').value,
+                        password: document.getElementById('log-pass').value
+                    })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    status.innerHTML = `✅ <strong>Login Success!</strong><br>Token Received: <br><small style="word-break:break-all;">${data.token}</small>`;
+                    status.style.backgroundColor = "#d4edda";
+                } else {
+                    status.innerHTML = `❌ <strong>Login Failed:</strong> ${data.error}`;
+                    status.style.backgroundColor = "#f8d7da";
+                }
+            } catch (err) {
+                status.innerHTML = `❌ <strong>Network Error:</strong> ${err.message}`;
+                status.style.backgroundColor = "#f8d7da";
+            }
+        }
+    </script>
+</body>
+</html>
