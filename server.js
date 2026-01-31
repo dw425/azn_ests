@@ -4,7 +4,7 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 // --- IMPORT ROUTES ---
-// Corrected Path: We must look inside the 'backend' folder
+// Now that you moved the file, this path will be correct:
 const seedRoutes = require('./backend/routes/seedRoutes'); 
 
 const app = express();
@@ -12,15 +12,12 @@ const PORT = process.env.PORT || 10000;
 
 // --- MIDDLEWARE ---
 app.use(cors());
-app.use(express.json()); // Allows us to parse JSON bodies from requests
+app.use(express.json());
 
-// --- DATABASE CONNECTION CHECK ---
-// This ensures we are connected when the server starts
+// --- DATABASE CONNECTION ---
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: { rejectUnauthorized: false }
 });
 
 pool.connect()
@@ -28,13 +25,9 @@ pool.connect()
     .catch(err => console.error('❌ Database Connection Error:', err));
 
 // --- ROUTES ---
+app.get('/', (req, res) => res.send('Stock Trading API is Live!'));
 
-// 1. Health Check Route (To verify server is running)
-app.get('/', (req, res) => {
-    res.send('Stock Trading API is Live!');
-});
-
-// 2. Admin Routes (For our "Time Travel" Data Generator)
+// Admin Route for Data Generation
 app.use('/api/admin', seedRoutes);
 
 // --- START SERVER ---
