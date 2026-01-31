@@ -164,7 +164,15 @@ function App() {
         
         {/* NAV */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, color: '#0056b3', fontSize: '24px' }}>📈 ProTrader<span style={{fontWeight:'300', color:'#333'}}>Dashboard</span></h2>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {/* Custom Logo: C (Red), D (Blue), M (Green) */}
+            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#d32f2f', marginRight: '1px' }}>C</span>
+            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#1565c0', marginRight: '1px' }}>D</span>
+            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#2e7d32', marginRight: '10px' }}>M</span>
+            
+            <h2 style={{ margin: 0, color: '#333', fontSize: '24px', fontWeight: '600' }}>ProTrader Dashboard</h2>
+          </div>
+          
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
             <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
