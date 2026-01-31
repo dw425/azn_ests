@@ -7,7 +7,8 @@ require('dotenv').config();
 const seedRoutes = require('./backend/routes/seedRoutes'); 
 const authRoutes = require('./backend/routes/authRoutes'); 
 const stockRoutes = require('./backend/routes/stockRoutes'); 
-const orderRoutes = require('./backend/routes/orderRoutes'); // <--- NEW
+const orderRoutes = require('./backend/routes/orderRoutes');
+const portfolioRoutes = require('./backend/routes/portfolioRoutes'); // <--- NEW
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -30,7 +31,8 @@ app.get('/', (req, res) => res.send('Stock Trading API is Live!'));
 app.use('/api/admin', seedRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/stocks', stockRoutes);
-app.use('/api/orders', orderRoutes); // <--- NEW
+app.use('/api/orders', orderRoutes);
+app.use('/api/portfolio', portfolioRoutes); // <--- NEW
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
