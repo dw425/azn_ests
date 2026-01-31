@@ -95,3 +95,24 @@ router.post('/generate-prices', async (req, res) => {
 });
 
 module.exports = router;
+
+// --- SQL RUNNER (New) ---
+// This allows you to run ANY raw SQL query from your browser
+router.post('/run-sql', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { query } = req.body;
+        console.log("Executing SQL:", query);
+        
+        const result = await client.query(query);
+        res.json({ 
+            success: true, 
+            rowCount: result.rowCount, 
+            rows: result.rows 
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
