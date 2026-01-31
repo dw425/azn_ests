@@ -1,96 +1,103 @@
-// backend/routes/authRoutes.js
 const express = require('express');
 const router = express.Router();
-const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Pool } = require('pg');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-training-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
-// --- REGISTER ROUTE ---
+// REGISTER
 router.post('/register', async (req, res) => {
     const client = await pool.connect();
     try {
         const { username, email, password } = req.body;
-
-        // 1. Check if user exists
-        const check = await client.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
-        if (check.rows.length > 0) {
-            return res.status(400).json({ error: 'User already exists' });
-        }
-
-        // 2. Hash Password
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(password, salt);
-
-        // 3. Insert User (FIX: using 'user_id' instead of 'id')
-        const result = await client.query(
-            `INSERT INTO users (username, email, password_hash, role, is_active, created_at) 
-             VALUES ($1, $2, $3, 'CUSTOMER', true, NOW()) 
-             RETURNING user_id, username, role`,
-            [username, email, passwordHash]
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Create User (Default is_admin = FALSE)
+        const userRes = await client.query(
+            `INSERT INTO users (username, email, password_hash, is_admin) 
+             VALUES ($1, $2, $3, FALSE) RETURNING user_id, username, is_admin`,
+            [username, email, hashedPassword]
         );
-        const newUser = result.rows[0];
+        const user = userRes.rows[0];
 
-        // 4. Create Wallet (FIX: using 'user_id')
+        // Create Wallet
         await client.query(
-            `INSERT INTO wallets (user_id, balance, currency, created_at) VALUES ($1, 10000.00, 'USD', NOW())`,
-            [newUser.user_id]
+            'INSERT INTO wallets (user_id, balance) VALUES ($1, 10000.00)',
+            [user.user_id]
         );
 
-        res.status(201).json({ 
-            message: 'User created successfully', 
-            user: newUser 
-        });
-
+        res.json({ message: 'User created successfully', user });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error: ' + err.message });
+        if (err.code === '23505') return res.status(400).json({ error: 'Username or email already exists' });
+        res.status(500).json({ error: err.message });
     } finally {
         client.release();
     }
 });
 
-// --- LOGIN ROUTE ---
+// LOGIN
 router.post('/login', async (req, res) => {
     const client = await pool.connect();
     try {
         const { username, password } = req.body;
-
-        // 1. Find user
+        
+        // We now select 'is_admin' too!
         const result = await client.query('SELECT * FROM users WHERE username = $1', [username]);
-        if (result.rows.length === 0) {
-            return res.status(400).json({ error: 'Invalid credentials' });
-        }
+        if (result.rows.length === 0) return res.status(400).json({ error: 'User not found' });
+
         const user = result.rows[0];
-
-        // 2. Check Password
         const validPass = await bcrypt.compare(password, user.password_hash);
-        if (!validPass) {
-            return res.status(400).json({ error: 'Invalid credentials' });
-        }
+        if (!validPass) return res.status(400).json({ error: 'Invalid password' });
 
-        // 3. Generate Token (FIX: using 'user_id')
-        const token = jwt.sign(
-            { id: user.user_id, role: user.role }, // Payload
-            JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        const token = jwt.sign({ id: user.user_id, isAdmin: user.is_admin }, JWT_SECRET, { expiresIn: '1h' });
 
         res.json({ 
-            message: 'Login successful',
             token, 
-            user: { id: user.user_id, username: user.username, role: user.role }
+            user: { 
+                id: user.user_id, 
+                username: user.username, 
+                email: user.email,
+                is_admin: user.is_admin // <--- CRITICAL: Sending status to frontend
+            } 
         });
-
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server error: ' + err.message });
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// GET ALL USERS (Admin Only)
+router.get('/users', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        // Fetch is_admin status so we can show it in the table
+        const result = await client.query('SELECT user_id, username, created_at, is_admin FROM users ORDER BY user_id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// TOGGLE ADMIN STATUS (New Route)
+router.put('/users/:id/role', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        const { isAdmin } = req.body; // TRUE or FALSE
+
+        await client.query('UPDATE users SET is_admin = $1 WHERE user_id = $2', [isAdmin, id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     } finally {
         client.release();
     }
