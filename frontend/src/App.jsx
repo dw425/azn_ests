@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // POINT TO YOUR BACKEND
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
@@ -8,11 +8,11 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   
-  // DATA STATES
-  const [portfolio, setPortfolio] = useState(null); // Summary (Cash, Total Value)
-  const [holdings, setHoldings] = useState([]);     // Your owned stocks
-  const [market, setMarket] = useState([]);         // All available stocks
-  const [chartData, setChartData] = useState([]);   // Graph data
+  // DATA STATES - initialized with SAFE DEFAULTS (Start at 0)
+  const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, recentActivity: null }); 
+  const [holdings, setHoldings] = useState([]);     
+  const [market, setMarket] = useState([]);         
+  const [chartData, setChartData] = useState([]);   
 
   // UI STATES
   const [isLogin, setIsLogin] = useState(true);
@@ -21,7 +21,7 @@ function App() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('portfolio'); // 'portfolio' or 'market'
+  const [dataLoading, setDataLoading] = useState(false); 
 
   // TRADING MODAL
   const [selectedStock, setSelectedStock] = useState(null);
@@ -31,32 +31,52 @@ function App() {
   // --- INITIAL LOAD ---
   useEffect(() => {
     if (token) {
-      const savedUser = JSON.parse(localStorage.getItem('user'));
-      setUser(savedUser);
-      loadDashboard(savedUser.id || savedUser.user_id);
+      try {
+        const savedUser = JSON.parse(localStorage.getItem('user'));
+        if (savedUser) {
+            setUser(savedUser);
+            loadDashboard(savedUser.id || savedUser.user_id);
+        } else {
+            handleLogout(); 
+        }
+      } catch (e) {
+        handleLogout();
+      }
     }
   }, [token]);
 
-  const loadDashboard = (userId) => {
-    // 1. Get Summary (Cash, Total Value)
-    fetch(`${API_BASE}/api/portfolio/summary/${userId}`)
-      .then(res => res.json())
-      .then(data => setPortfolio(data));
+  const loadDashboard = async (userId) => {
+    setDataLoading(true);
+    setError('');
+    
+    try {
+        // 1. Get Summary (with fallback to 0)
+        const portRes = await fetch(`${API_BASE}/api/portfolio/summary/${userId}`);
+        const portData = await portRes.json();
+        // If error or missing, keep default 0s, otherwise update
+        if (!portData.error) setPortfolio(portData);
 
-    // 2. Get Holdings (Table Data)
-    fetch(`${API_BASE}/api/portfolio/holdings/${userId}`)
-      .then(res => res.json())
-      .then(data => setHoldings(data));
+        // 2. Get Holdings
+        const holdRes = await fetch(`${API_BASE}/api/portfolio/holdings/${userId}`);
+        const holdData = await holdRes.json();
+        setHoldings(Array.isArray(holdData) ? holdData : []);
 
-    // 3. Get Chart History
-    fetch(`${API_BASE}/api/portfolio/chart/${userId}`)
-      .then(res => res.json())
-      .then(data => setChartData(data));
+        // 3. Get Chart
+        const chartRes = await fetch(`${API_BASE}/api/portfolio/chart/${userId}`);
+        const chartData = await chartRes.json();
+        setChartData(Array.isArray(chartData) ? chartData : []);
 
-    // 4. Get Market Data (For buying new stuff)
-    fetch(`${API_BASE}/api/stocks`)
-      .then(res => res.json())
-      .then(data => setMarket(data));
+        // 4. Get Market
+        const marketRes = await fetch(`${API_BASE}/api/stocks`);
+        const marketData = await marketRes.json();
+        setMarket(Array.isArray(marketData) ? marketData : []);
+
+    } catch (err) {
+        console.error("Dashboard Load Error (using defaults):", err);
+        // We don't set error state here, so the user sees the dashboard with 0s instead of a crash
+    } finally {
+        setDataLoading(false);
+    }
   };
 
   // --- HANDLERS ---
@@ -65,6 +85,7 @@ function App() {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
+    setPortfolio({ cash: 0, stockValue: 0, totalValue: 0, recentActivity: null }); // Reset to 0
   };
 
   const handleAuth = async (e) => {
@@ -122,7 +143,7 @@ function App() {
         setTimeout(() => {
             setSelectedStock(null);
             setTradeMsg('');
-            loadDashboard(user.id || user.user_id); // Refresh data
+            loadDashboard(user.id || user.user_id); 
         }, 1500);
       } else {
         setTradeMsg(`❌ Error: ${data.error}`);
@@ -133,11 +154,12 @@ function App() {
   };
 
   // --- RENDER HELPERS ---
-  const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
+  // Safe format: if num is null/undefined, treat as 0
+  const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   const getColor = (val) => val >= 0 ? '#28a745' : '#dc3545';
 
   // --- MAIN VIEW ---
-  if (token && portfolio) {
+  if (token) {
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
         
@@ -145,25 +167,23 @@ function App() {
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0, color: '#0056b3', fontSize: '24px' }}>📈 ProTrader<span style={{fontWeight:'300', color:'#333'}}>Dashboard</span></h2>
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-            <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user.username}</span>
+            <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
             <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
           </div>
         </div>
 
+        {/* LOADING INDICATOR (Subtle) */}
+        {dataLoading && <div style={{ background: '#e2e6ea', color: '#555', padding: '10px', textAlign: 'center', fontSize: '12px' }}>🔄 Refreshing Data...</div>}
+
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
           
-          {/* TOP METRICS (4 CARDS) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '30px' }}>
-            {/* 1. Cash */}
+          {/* TOP METRICS */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+            {/* These will now default to $0.00 instead of crashing */}
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
-            
-            {/* 2. Portfolio Value */}
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
-            
-            {/* 3. Day Change (Simulated) */}
             <MetricCard title="Day's Change" value="+$324.50" sub="+1.2%" color="#28a745" />
-
-            {/* 4. Recent Activity */}
+            
             <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #007bff' }}>
                 <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Activity</div>
                 <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '5px' }}>
@@ -175,7 +195,7 @@ function App() {
             </div>
           </div>
 
-          {/* CHART SECTION */}
+          {/* CHART */}
           <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (90 Day)</h3>
             <div style={{ height: '300px', width: '100%' }}>
@@ -228,7 +248,7 @@ function App() {
                                 <td style={{...tdStyle, color: getColor(stock.day_change)}}>{stock.day_change > 0 ? '+' : ''}{formatMoney(stock.day_change)}</td>
                                 <td style={tdStyle}>
                                     <div style={{color: getColor(stock.total_gain)}}>{formatMoney(stock.total_gain)}</div>
-                                    <div style={{fontSize: '11px', color: getColor(stock.total_gain)}}>{stock.total_gain_pct.toFixed(2)}%</div>
+                                    <div style={{fontSize: '11px', color: getColor(stock.total_gain)}}>{stock.total_gain_pct ? stock.total_gain_pct.toFixed(2) : 0}%</div>
                                 </td>
                                 <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.market_value)}</td>
                                 <td style={tdStyle}>{stock.quantity}</td>
@@ -261,15 +281,19 @@ function App() {
                     </tr>
                 </thead>
                 <tbody>
-                    {market.map(stock => (
-                        <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
-                            <td style={tdStyle}>{stock.company_name}</td>
-                            <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
-                            <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
-                            <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy</button></td>
-                        </tr>
-                    ))}
+                    {market.length === 0 ? (
+                        <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>Loading Market Data...</td></tr>
+                    ) : (
+                        market.map(stock => (
+                            <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
+                                <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
+                                <td style={tdStyle}>{stock.company_name}</td>
+                                <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
+                                <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
+                                <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy</button></td>
+                            </tr>
+                        ))
+                    )}
                 </tbody>
             </table>
           </div>
@@ -308,7 +332,7 @@ function App() {
     );
   }
 
-  // LOGIN SCREEN (Unchanged style-wise)
+  // LOGIN SCREEN
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', fontFamily: 'sans-serif' }}>
         <div style={{ background: 'white', padding: '40px', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '350px' }}>
