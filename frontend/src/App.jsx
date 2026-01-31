@@ -8,7 +8,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   
-  // DATA STATES (Start at 0)
+  // DATA STATES
   const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null }); 
   const [holdings, setHoldings] = useState([]);     
   const [market, setMarket] = useState([]);         
@@ -146,11 +146,10 @@ function App() {
     }
   };
 
-  // --- RENDER HELPERS ---
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   
   const ChangeIndicator = ({ val, isPercent }) => {
-     if(!val || val === 0) return <span style={{color:'#666'}}>-</span >;
+     if(!val || val === 0) return <span style={{color:'#999', fontSize:'12px'}}>-</span >;
      const color = val > 0 ? '#28a745' : '#dc3545';
      const sign = val > 0 ? '+' : '';
      return <span style={{color, fontWeight:'bold'}}>{sign}{isPercent ? val.toFixed(2) + '%' : formatMoney(val)}</span>;
@@ -161,17 +160,46 @@ function App() {
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
         
-        {/* NAV */}
+        {/* HEADER */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#d32f2f', marginRight: '1px' }}>C</span>
-            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#1565c0', marginRight: '1px' }}>D</span>
-            <span style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', color: '#2e7d32', marginRight: '10px' }}>M</span>
-            <h2 style={{ margin: 0, color: '#333', fontSize: '24px', fontWeight: '600' }}>ProTrader Dashboard</h2>
+          
+          {/* NEW LOGO */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px' }}>
+                <span style={{ color: '#d32f2f' }}>C</span>
+                <span style={{ color: '#1565c0' }}>D</span>
+                <span style={{ color: '#2e7d32' }}>M</span>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', justifyContent:'center' }}>
+                <span style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', lineHeight:'1', letterSpacing:'-0.5px' }}>ProTrader</span>
+                <span style={{ fontSize: '11px', fontWeight: '400', color: '#95a5a6', textTransform:'uppercase', letterSpacing:'2px' }}>Dashboard</span>
+            </div>
           </div>
+          
+          {/* USER CONTROLS */}
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+            
+            {/* ADMIN BUTTON */}
+            <a href="/sql_tool.html" target="_blank" style={{ textDecoration: 'none' }}>
+                <button style={{ 
+                    padding: '8px 16px', 
+                    fontSize: '13px', 
+                    background: '#343a40', 
+                    color: '#fff', 
+                    border: 'none', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex', alignItems: 'center', gap: '5px'
+                }}>
+                    🔒 Admin
+                </button>
+            </a>
+
+            <div style={{borderLeft:'1px solid #ddd', height:'25px'}}></div>
+
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
-            <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer' }}>Logout</button>
+            <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer', color:'#666' }}>Logout</button>
           </div>
         </div>
 
@@ -344,7 +372,14 @@ function App() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', fontFamily: 'sans-serif' }}>
         <div style={{ background: 'white', padding: '40px', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '350px' }}>
-            <h2 style={{textAlign:'center', marginBottom:'20px', color:'#333'}}>Market<span style={{color:'#007bff'}}>Sim</span></h2>
+            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+                <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px', marginBottom:'5px' }}>
+                    <span style={{ color: '#d32f2f' }}>C</span>
+                    <span style={{ color: '#1565c0' }}>D</span>
+                    <span style={{ color: '#2e7d32' }}>M</span>
+                </div>
+                <div style={{ fontSize: '14px', fontWeight: '800', color: '#2c3e50', textTransform:'uppercase', letterSpacing:'2px' }}>ProTrader</div>
+            </div>
             {error && <div style={{padding:'10px', background:'#ffeeba', color:'#856404', borderRadius:'4px', marginBottom:'15px'}}>{error}</div>}
             <form onSubmit={handleAuth}>
                 <input style={inputStyle} type="text" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} />
