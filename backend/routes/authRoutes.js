@@ -10,7 +10,6 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-// Secret key for tokens (In a real app, this goes in .env, but this is fine for training)
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-training-key-2026';
 
 // --- REGISTER ROUTE ---
@@ -19,36 +18,39 @@ router.post('/register', async (req, res) => {
     try {
         const { username, email, password } = req.body;
 
-        // 1. Check if user already exists
+        // 1. Check if user exists
         const check = await client.query('SELECT * FROM users WHERE email = $1 OR username = $2', [email, username]);
         if (check.rows.length > 0) {
             return res.status(400).json({ error: 'User already exists' });
         }
 
-        // 2. Hash the password (Security Best Practice)
+        // 2. Hash Password
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(password, salt);
 
-        // 3. Insert User
+        // 3. Insert User (FIX: using 'user_id' instead of 'id')
         const result = await client.query(
-            `INSERT INTO users (username, email, password_hash, role, is_active) 
-             VALUES ($1, $2, $3, 'CUSTOMER', true) 
-             RETURNING id, username, role`,
+            `INSERT INTO users (username, email, password_hash, role, is_active, created_at) 
+             VALUES ($1, $2, $3, 'CUSTOMER', true, NOW()) 
+             RETURNING user_id, username, role`,
             [username, email, passwordHash]
         );
         const newUser = result.rows[0];
 
-        // 4. Create their Wallet with $10,000 start money
+        // 4. Create Wallet (FIX: using 'user_id')
         await client.query(
-            `INSERT INTO wallets (user_id, balance) VALUES ($1, 10000.00)`,
-            [newUser.id]
+            `INSERT INTO wallets (user_id, balance, currency, created_at) VALUES ($1, 10000.00, 'USD', NOW())`,
+            [newUser.user_id]
         );
 
-        res.status(201).json({ message: 'User created successfully', user: newUser });
+        res.status(201).json({ 
+            message: 'User created successfully', 
+            user: newUser 
+        });
 
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error during registration: ' + err.message });
+        res.status(500).json({ error: 'Server error: ' + err.message });
     } finally {
         client.release();
     }
@@ -73,9 +75,9 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Invalid credentials' });
         }
 
-        // 3. Generate Token (This is their "ID Card" for the session)
+        // 3. Generate Token (FIX: using 'user_id')
         const token = jwt.sign(
-            { id: user.id, role: user.role },
+            { id: user.user_id, role: user.role }, // Payload
             JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -83,12 +85,12 @@ router.post('/login', async (req, res) => {
         res.json({ 
             message: 'Login successful',
             token, 
-            user: { id: user.id, username: user.username, role: user.role }
+            user: { id: user.user_id, username: user.username, role: user.role }
         });
 
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error during login' });
+        res.status(500).json({ error: 'Server error: ' + err.message });
     } finally {
         client.release();
     }
