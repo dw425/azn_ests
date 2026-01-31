@@ -5,7 +5,8 @@ require('dotenv').config();
 
 // --- IMPORT ROUTES ---
 const seedRoutes = require('./backend/routes/seedRoutes'); 
-const authRoutes = require('./backend/routes/authRoutes'); // <--- NEW
+const authRoutes = require('./backend/routes/authRoutes'); 
+const stockRoutes = require('./backend/routes/stockRoutes'); // <--- NEW
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -13,7 +14,6 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// --- DB CONNECTION ---
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
@@ -26,11 +26,9 @@ pool.connect()
 // --- ROUTES ---
 app.get('/', (req, res) => res.send('Stock Trading API is Live!'));
 
-// Admin Routes (Data Gen)
 app.use('/api/admin', seedRoutes);
-
-// Auth Routes (Login/Register)
-app.use('/api/auth', authRoutes); // <--- NEW
+app.use('/api/auth', authRoutes);
+app.use('/api/stocks', stockRoutes); // <--- NEW
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
