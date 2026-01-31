@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import AdminDashboard from './AdminDashboard'; 
 
-// POINT TO YOUR BACKEND
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
+  const [view, setView] = useState('dashboard');
   
   // DATA STATES
   const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null }); 
@@ -47,7 +48,6 @@ function App() {
 
   const loadDashboard = async (userId) => {
     setDataLoading(true);
-    
     try {
         const portRes = await fetch(`${API_BASE}/api/portfolio/summary/${userId}`);
         const portData = await portRes.json();
@@ -64,7 +64,6 @@ function App() {
         const marketRes = await fetch(`${API_BASE}/api/stocks`);
         const marketData = await marketRes.json();
         setMarket(Array.isArray(marketData) ? marketData : []);
-
     } catch (err) {
         console.error("Dashboard Load Error:", err);
     } finally {
@@ -72,13 +71,29 @@ function App() {
     }
   };
 
-  // --- HANDLERS ---
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-    setPortfolio({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null });
+    setView('dashboard');
+  };
+
+  const handleAdminClick = () => {
+      // SECURITY CHECK
+      if (user && user.is_admin) {
+          setView('admin');
+      } else {
+          // If not admin, FORCE LOGOUT
+          handleLogout();
+          alert("⛔ Access Denied: You are not an Admin.");
+      }
+  };
+
+  const handleLoginAs = (targetUser) => {
+    setUser(targetUser); // Switch user context
+    loadDashboard(targetUser.user_id);
+    setView('dashboard'); // Go to their dash
   };
 
   const handleAuth = async (e) => {
@@ -100,6 +115,7 @@ function App() {
 
       if (isLogin) {
         localStorage.setItem('token', data.token);
+        // Important: Backend now sends 'is_admin' inside data.user
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
@@ -155,15 +171,19 @@ function App() {
      return <span style={{color, fontWeight:'bold'}}>{sign}{isPercent ? val.toFixed(2) + '%' : formatMoney(val)}</span>;
   };
 
-  // --- MAIN VIEW ---
+  if (token && view === 'admin') {
+      return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={handleLoginAs} />;
+  }
+
   if (token) {
+    // Check if current user is admin for button styling
+    const isAdmin = user?.is_admin;
+
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
         
-        {/* HEADER */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           
-          {/* NEW LOGO */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px' }}>
                 <span style={{ color: '#d32f2f' }}>C</span>
@@ -176,28 +196,27 @@ function App() {
             </div>
           </div>
           
-          {/* USER CONTROLS */}
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
             
-            {/* ADMIN BUTTON */}
-            <a href="/sql_tool.html" target="_blank" style={{ textDecoration: 'none' }}>
-                <button style={{ 
+            {/* SECURITY BUTTON */}
+            <button 
+                onClick={handleAdminClick} 
+                style={{ 
                     padding: '8px 16px', 
                     fontSize: '13px', 
-                    background: '#343a40', 
-                    color: '#fff', 
+                    background: isAdmin ? '#343a40' : '#e9ecef', // Dark if Admin, Grey if not
+                    color: isAdmin ? '#fff' : '#adb5bd',         // White text if Admin, Grey if not
                     border: 'none', 
                     borderRadius: '4px', 
-                    cursor: 'pointer',
+                    cursor: isAdmin ? 'pointer' : 'not-allowed', // Pointer vs Stop sign
                     fontWeight: 'bold',
-                    display: 'flex', alignItems: 'center', gap: '5px'
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    transition: 'all 0.2s'
                 }}>
-                    🔒 Admin
-                </button>
-            </a>
+                {isAdmin ? '🔒 Admin' : '🔒 Restricted'}
+            </button>
 
             <div style={{borderLeft:'1px solid #ddd', height:'25px'}}></div>
-
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
             <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer', color:'#666' }}>Logout</button>
           </div>
@@ -207,7 +226,6 @@ function App() {
 
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
           
-          {/* TOP METRICS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
@@ -233,7 +251,6 @@ function App() {
             </div>
           </div>
 
-          {/* CHART */}
           <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
             <div style={{ height: '300px', width: '100%' }}>
@@ -255,7 +272,6 @@ function App() {
             </div>
           </div>
 
-          {/* HOLDINGS TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Positions</h3>
@@ -298,7 +314,6 @@ function App() {
 
           <br /> <br />
 
-          {/* MARKET TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Market Data</h3>
@@ -336,7 +351,6 @@ function App() {
           </div>
         </div>
 
-        {/* TRADE MODAL */}
         {selectedStock && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
@@ -395,7 +409,7 @@ function App() {
   );
 }
 
-// --- STYLES ---
+// STYLES (Unchanged)
 const MetricCard = ({ title, value, sub, color, highlight }) => (
     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: highlight ? '0 4px 12px rgba(0,123,255,0.2)' : '0 1px 3px rgba(0,0,0,0.1)', borderTop: highlight ? '4px solid #007bff' : 'none' }}>
         <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
