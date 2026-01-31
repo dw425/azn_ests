@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
+// --- CONFIGURATION ---
+// We explicitly point to your Backend URL here to avoid the "Proxy Trap"
+const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
+
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
@@ -26,7 +30,11 @@ function App() {
     setError('');
     setLoading(true);
 
-    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+    // We build the full URL here
+    const endpoint = isLogin 
+      ? `${API_BASE}/api/auth/login` 
+      : `${API_BASE}/api/auth/register`;
+      
     const payload = isLogin 
       ? { username, password } 
       : { username, email, password };
@@ -38,18 +46,18 @@ function App() {
         body: JSON.stringify(payload)
       });
       
-      const data = await res.json();
+      // We check if the response is empty before trying to parse it
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
 
       if (!res.ok) throw new Error(data.error || 'Something went wrong');
 
       if (isLogin) {
-        // Login Success: Save token and user info
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
       } else {
-        // Register Success: Automatically switch to login screen
         setIsLogin(true);
         setError('Account created! Please log in.');
         setUsername('');
