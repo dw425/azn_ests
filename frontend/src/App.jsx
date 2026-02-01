@@ -46,23 +46,29 @@ function App() {
     }
   }, [token]);
 
+  // --- OPTIMIZED LOADING STRATEGY (Promise.all) ---
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
-        const portRes = await fetch(`${API_BASE}/api/portfolio/summary/${userId}`);
+        // PARALLEL EXECUTION: Fire all 4 requests simultaneously
+        // This is much faster than waiting for them one by one
+        const [portRes, holdRes, chartRes, marketRes] = await Promise.all([
+            fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
+            fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
+            fetch(`${API_BASE}/api/portfolio/chart/${userId}`),
+            fetch(`${API_BASE}/api/stocks`)
+        ]);
+
+        // Process all results once they arrive
         const portData = await portRes.json();
-        if (!portData.error) setPortfolio(portData);
-
-        const holdRes = await fetch(`${API_BASE}/api/portfolio/holdings/${userId}`);
         const holdData = await holdRes.json();
-        setHoldings(Array.isArray(holdData) ? holdData : []);
-
-        const chartRes = await fetch(`${API_BASE}/api/portfolio/chart/${userId}`);
         const chartData = await chartRes.json();
-        setChartData(Array.isArray(chartData) ? chartData : []);
-
-        const marketRes = await fetch(`${API_BASE}/api/stocks`);
         const marketData = await marketRes.json();
+
+        // Batch Updates
+        if (!portData.error) setPortfolio(portData);
+        setHoldings(Array.isArray(holdData) ? holdData : []);
+        setChartData(Array.isArray(chartData) ? chartData : []);
         setMarket(Array.isArray(marketData) ? marketData : []);
 
     } catch (err) {
