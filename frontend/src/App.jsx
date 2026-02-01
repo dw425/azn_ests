@@ -24,10 +24,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false); 
 
-  // TRADING MODAL
-  const [selectedStock, setSelectedStock] = useState(null);
+  // MODALS
+  const [selectedStock, setSelectedStock] = useState(null); // Buy Modal
+  const [showWallet, setShowWallet] = useState(false);      // Wallet Modal
+  const [walletAmount, setWalletAmount] = useState('');     // Wallet Input
   const [quantity, setQuantity] = useState(1);
   const [tradeMsg, setTradeMsg] = useState('');
+  const [walletMsg, setWalletMsg] = useState('');
 
   // --- INITIAL LOAD ---
   useEffect(() => {
@@ -46,12 +49,9 @@ function App() {
     }
   }, [token]);
 
-  // --- OPTIMIZED LOADING STRATEGY (Promise.all) ---
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
-        // PARALLEL EXECUTION: Fire all 4 requests simultaneously
-        // This is much faster than waiting for them one by one
         const [portRes, holdRes, chartRes, marketRes] = await Promise.all([
             fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
             fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
@@ -59,13 +59,11 @@ function App() {
             fetch(`${API_BASE}/api/stocks`)
         ]);
 
-        // Process all results once they arrive
         const portData = await portRes.json();
         const holdData = await holdRes.json();
         const chartData = await chartRes.json();
         const marketData = await marketRes.json();
 
-        // Batch Updates
         if (!portData.error) setPortfolio(portData);
         setHoldings(Array.isArray(holdData) ? holdData : []);
         setChartData(Array.isArray(chartData) ? chartData : []);
@@ -105,7 +103,6 @@ function App() {
     e.preventDefault();
     setLoading(true);
     setError('');
-    
     const endpoint = isLogin ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`;
     const payload = isLogin ? { username, password } : { username, email, password };
 
@@ -166,6 +163,35 @@ function App() {
     }
   };
 
+  // --- NEW: WALLET HANDLER ---
+  const handleAddFunds = async () => {
+      setWalletMsg('Processing...');
+      try {
+          const res = await fetch(`${API_BASE}/api/wallet/add`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  userId: user.id || user.user_id,
+                  amount: Number(walletAmount)
+              })
+          });
+          const data = await res.json();
+          if (res.ok) {
+              setWalletMsg(`✅ ${data.message}`);
+              setTimeout(() => {
+                  setShowWallet(false);
+                  setWalletMsg('');
+                  setWalletAmount('');
+                  loadDashboard(user.id || user.user_id); // Refresh Data
+              }, 1500);
+          } else {
+              setWalletMsg(`❌ ${data.error}`);
+          }
+      } catch (err) {
+          setWalletMsg(`❌ Error: ${err.message}`);
+      }
+  };
+
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   
   const ChangeIndicator = ({ val, isPercent }) => {
@@ -186,14 +212,15 @@ function App() {
       </div>
   );
 
-  // --- VIEW: ADMIN ---
   if (token && view === 'admin') {
       return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={handleLoginAs} />;
   }
 
-  // --- VIEW: DASHBOARD ---
   if (token) {
     const isAdmin = user?.is_admin;
+    // Calculate Buying Power for Validation
+    const tradeCost = selectedStock ? selectedStock.current_price * quantity : 0;
+    const canAfford = tradeCost <= portfolio.cash;
 
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
@@ -204,7 +231,11 @@ function App() {
             <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px' }}><span style={{ color: '#d32f2f' }}>C</span><span style={{ color: '#1565c0' }}>D</span><span style={{ color: '#2e7d32' }}>M</span></div>
             <div style={{ display:'flex', flexDirection:'column', justifyContent:'center' }}><span style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', lineHeight:'1', letterSpacing:'-0.5px' }}>ProTrader</span><span style={{ fontSize: '11px', fontWeight: '400', color: '#95a5a6', textTransform:'uppercase', letterSpacing:'2px' }}>Dashboard</span></div>
           </div>
-          <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+            
+            {/* WALLET BUTTON */}
+            <button onClick={() => setShowWallet(true)} style={{ padding: '8px 16px', fontSize: '13px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>💰 Wallet</button>
+
             <button onClick={handleAdminClick} style={{ padding: '8px 16px', fontSize: '13px', background: isAdmin ? '#343a40' : '#e9ecef', color: isAdmin ? '#fff' : '#adb5bd', border: 'none', borderRadius: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>{isAdmin ? '🔒 Admin' : '🔒 Restricted'}</button>
             <div style={{borderLeft:'1px solid #ddd', height:'25px'}}></div>
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
@@ -216,7 +247,6 @@ function App() {
 
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
           
-          {/* METRICS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
@@ -232,7 +262,6 @@ function App() {
             </div>
           </div>
 
-          {/* CHART */}
           <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
             <div style={{ height: '300px', width: '100%' }}>
@@ -249,7 +278,6 @@ function App() {
             </div>
           </div>
 
-          {/* POSITIONS */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Positions</h3></div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -278,7 +306,6 @@ function App() {
 
           <br /> <br />
 
-          {/* MARKET DATA */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Market Data</h3></div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -312,16 +339,46 @@ function App() {
                     <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
                          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Price:</span><strong>{formatMoney(selectedStock.current_price)}</strong></div>
                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}><span>Quantity:</span><input type="number" min="1" value={quantity} onChange={e=>setQuantity(e.target.value)} style={{width:'80px', padding:'5px'}} /></div>
-                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}><span>Total Cost:</span><span style={{color:'#dc3545'}}>{formatMoney(selectedStock.current_price * quantity)}</span></div>
+                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}>
+                             <span>Total Cost:</span>
+                             {/* Buying Power Check Logic */}
+                             <span style={{color: canAfford ? '#333' : '#dc3545', fontWeight:'bold'}}>
+                                 {formatMoney(tradeCost)}
+                             </span>
+                         </div>
+                         {!canAfford && <div style={{fontSize:'12px', color:'#dc3545', marginTop:'5px', textAlign:'right'}}>Insufficient Funds! (Available: {formatMoney(portfolio.cash)})</div>}
                     </div>
                     {tradeMsg && <div style={{marginBottom:'15px', color: tradeMsg.includes('Success')?'green':'red', textAlign:'center'}}>{tradeMsg}</div>}
                     <div style={{display:'flex', gap:'10px'}}>
-                        <button onClick={handleBuy} style={{...btnBig, background:'#28a745'}}>Confirm Order</button>
+                        <button onClick={handleBuy} disabled={!canAfford} style={{...btnBig, background: canAfford ? '#28a745' : '#ccc', cursor: canAfford ? 'pointer' : 'not-allowed'}}>Confirm Order</button>
                         <button onClick={()=>{setSelectedStock(null); setTradeMsg('')}} style={{...btnBig, background:'#6c757d'}}>Cancel</button>
                     </div>
                 </div>
             </div>
         )}
+
+        {/* NEW: WALLET MODAL */}
+        {showWallet && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
+                    <h2 style={{marginTop:0, display:'flex', alignItems:'center', gap:'10px'}}>💰 Add Funds</h2>
+                    <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
+                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Balance:</span><strong>{formatMoney(portfolio.cash)}</strong></div>
+                         <div style={{marginBottom:'10px'}}>
+                             <label style={{display:'block', marginBottom:'5px', fontSize:'13px', fontWeight:'bold'}}>Amount to Add ($)</label>
+                             <input type="number" max="100000" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} placeholder="e.g. 5000" style={{width:'100%', padding:'10px', boxSizing:'border-box', border:'1px solid #ccc', borderRadius:'4px'}} />
+                             <div style={{fontSize:'11px', color:'#666', marginTop:'5px'}}>Max transaction: $100,000. Total Limit: $1M.</div>
+                         </div>
+                    </div>
+                    {walletMsg && <div style={{marginBottom:'15px', padding:'10px', background: walletMsg.includes('Success')?'#d4edda':'#f8d7da', color: walletMsg.includes('Success')?'#155724':'#721c24', borderRadius:'4px', fontSize:'13px'}}>{walletMsg}</div>}
+                    <div style={{display:'flex', gap:'10px'}}>
+                        <button onClick={handleAddFunds} style={{...btnBig, background:'#007bff'}}>Deposit Funds</button>
+                        <button onClick={()=>{setShowWallet(false); setWalletMsg(''); setWalletAmount('')}} style={{...btnBig, background:'#6c757d'}}>Cancel</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
     );
   }
