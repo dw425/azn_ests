@@ -25,9 +25,9 @@ function App() {
   const [dataLoading, setDataLoading] = useState(false); 
 
   // MODALS
-  const [tradeMode, setTradeMode] = useState(null); // { stock, type: 'BUY' | 'SELL' }
-  const [showWallet, setShowWallet] = useState(false);      
-  const [walletAmount, setWalletAmount] = useState('');     
+  const [selectedStock, setSelectedStock] = useState(null); // Buy Modal
+  const [showWallet, setShowWallet] = useState(false);      // Wallet Modal
+  const [walletAmount, setWalletAmount] = useState('');     // Wallet Input
   const [quantity, setQuantity] = useState(1);
   const [tradeMsg, setTradeMsg] = useState('');
   const [walletMsg, setWalletMsg] = useState('');
@@ -132,31 +132,28 @@ function App() {
     }
   };
 
-  // --- UNIFIED EXECUTE HANDLER (Buy & Sell) ---
-  const handleExecuteOrder = async () => {
-    setTradeMsg('Processing Trade...');
-    if(!user || !tradeMode) return;
+  const handleBuy = async () => {
+    setTradeMsg('Processing...');
+    if(!user || !selectedStock) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/orders/execute`, {
+      const res = await fetch(`${API_BASE}/api/orders/buy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             userId: user.id || user.user_id,
-            stockId: tradeMode.stock.stock_id,
-            quantity: Number(quantity),
-            type: tradeMode.type
+            stockId: selectedStock.stock_id,
+            quantity: Number(quantity)
         })
       });
       const data = await res.json();
       
       if(res.ok) {
-        setTradeMsg(`✅ ${tradeMode.type} Order Executed!`);
+        setTradeMsg('✅ Trade Executed!');
         setTimeout(() => {
-            setTradeMode(null);
+            setSelectedStock(null);
             setTradeMsg('');
-            setQuantity(1);
-            loadDashboard(user.id || user.user_id); // Auto-Refresh UI
+            loadDashboard(user.id || user.user_id); 
         }, 1500);
       } else {
         setTradeMsg(`❌ Error: ${data.error}`);
@@ -166,6 +163,7 @@ function App() {
     }
   };
 
+  // --- NEW: WALLET HANDLER ---
   const handleAddFunds = async () => {
       setWalletMsg('Processing...');
       try {
@@ -184,7 +182,7 @@ function App() {
                   setShowWallet(false);
                   setWalletMsg('');
                   setWalletAmount('');
-                  loadDashboard(user.id || user.user_id); 
+                  loadDashboard(user.id || user.user_id); // Refresh Data
               }, 1500);
           } else {
               setWalletMsg(`❌ ${data.error}`);
@@ -220,13 +218,9 @@ function App() {
 
   if (token) {
     const isAdmin = user?.is_admin;
-    
-    // Trade Calculation Logic
-    const tradeValue = tradeMode ? tradeMode.stock.current_price * quantity : 0;
-    const feePercent = tradeMode?.type === 'BUY' ? 0.01 : 0.02;
-    const estimatedFee = tradeValue * feePercent;
-    const totalImpact = tradeMode?.type === 'BUY' ? tradeValue + estimatedFee : tradeValue - estimatedFee;
-    const canAfford = tradeMode?.type === 'BUY' ? totalImpact <= portfolio.cash : true;
+    // Calculate Buying Power for Validation
+    const tradeCost = selectedStock ? selectedStock.current_price * quantity : 0;
+    const canAfford = tradeCost <= portfolio.cash;
 
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
@@ -238,8 +232,11 @@ function App() {
             <div style={{ display:'flex', flexDirection:'column', justifyContent:'center' }}><span style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', lineHeight:'1', letterSpacing:'-0.5px' }}>ProTrader</span><span style={{ fontSize: '11px', fontWeight: '400', color: '#95a5a6', textTransform:'uppercase', letterSpacing:'2px' }}>Dashboard</span></div>
           </div>
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-            <button onClick={() => setShowWallet(true)} style={{ padding: '8px 16px', fontSize: '13px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>💰 Wallet</button>
-            <button onClick={handleAdminClick} style={{ padding: '8px 16px', fontSize: '13px', background: isAdmin ? '#343a40' : '#e9ecef', color: isAdmin ? '#fff' : '#adb5bd', border: 'none', borderRadius: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', fontWeight: 'bold' }}>{isAdmin ? '🔒 Admin' : '🔒 Restricted'}</button>
+            
+            {/* WALLET BUTTON */}
+            <button onClick={() => setShowWallet(true)} style={{ padding: '8px 16px', fontSize: '13px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>💰 Wallet</button>
+
+            <button onClick={handleAdminClick} style={{ padding: '8px 16px', fontSize: '13px', background: isAdmin ? '#343a40' : '#e9ecef', color: isAdmin ? '#fff' : '#adb5bd', border: 'none', borderRadius: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>{isAdmin ? '🔒 Admin' : '🔒 Restricted'}</button>
             <div style={{borderLeft:'1px solid #ddd', height:'25px'}}></div>
             <span style={{ fontSize: '14px', fontWeight: '600', color: '#555' }}>{user?.username}</span>
             <button onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '13px', background: 'none', border: '1px solid #d1d5da', borderRadius: '4px', cursor: 'pointer', color:'#666' }}>Logout</button>
@@ -258,9 +255,9 @@ function App() {
                 <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}><ChangeIndicator val={portfolio.dayChange} /></div>
                 <div style={{ fontSize: '13px', marginTop: '2px' }}><ChangeIndicator val={portfolio.dayChangePct} isPercent /></div>
             </div>
-            <div style={{ background: 'white', padding: '20px', borderRadius: '8px', borderLeft: '4px solid #007bff' }}>
+            <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #007bff' }}>
                 <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Activity</div>
-                <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '5px' }}>{portfolio.recentActivity ? `${portfolio.recentActivity.order_type.replace('_', ' ')} ${Math.abs(portfolio.recentActivity.quantity)} ${portfolio.recentActivity.ticker}` : 'No trades yet'}</div>
+                <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '5px' }}>{portfolio.recentActivity ? `Bought ${portfolio.recentActivity.quantity} ${portfolio.recentActivity.ticker}` : 'No trades yet'}</div>
                 <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>{portfolio.recentActivity ? `@ ${formatMoney(portfolio.recentActivity.price_executed)}` : 'Start trading now'}</div>
             </div>
           </div>
@@ -281,31 +278,26 @@ function App() {
             </div>
           </div>
 
-          {/* POSITIONS TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Positions</h3></div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                     <tr>
-                        <th style={thStyle}>Symbol</th><th style={thStyle}>Last Price</th><th style={thStyle}>Qty</th><th style={thStyle}>Day Change</th><th style={thStyle}>Total Fees</th><th style={thStyle}>Total G/L</th><th style={thStyle}>Current Value</th><th style={thStyle}>Action</th>
+                        <th style={thStyle}>Symbol</th><th style={thStyle}>Last Price</th><th style={thStyle}>Day Change</th><th style={thStyle}>Total Gain/Loss</th><th style={thStyle}>Current Value</th><th style={thStyle}>Quantity</th><th style={thStyle}>Avg Cost</th><th style={thStyle}>Total Cost</th><th style={thStyle}>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {holdings.length === 0 ? (<tr><td colSpan="8" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held. Check the Market below!</td></tr>) : (holdings.map(stock => (
+                    {holdings.length === 0 ? (<tr><td colSpan="9" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held. Check the Market below!</td></tr>) : (holdings.map(stock => (
                         <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
                             <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
                             <td style={tdStyle}>{formatMoney(stock.current_price)}</td>
-                            <td style={tdStyle}>{stock.quantity}</td>
                             <td style={tdStyle}><ChangeIndicator val={stock.day_change} isPercent /></td>
-                            <td style={{...tdStyle, color: '#666'}}>{formatMoney(stock.total_fees || 0)}</td>
                             <td style={tdStyle}><ChangeIndicator val={stock.total_gain} /><br/><span style={{fontSize:'11px'}}><ChangeIndicator val={stock.total_gain_pct} isPercent /></span></td>
                             <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.market_value)}</td>
-                            <td style={tdStyle}>
-                                <div style={{display:'flex', gap:'5px'}}>
-                                    <button onClick={() => setTradeMode({stock, type: 'BUY'})} style={btnSmall}>Buy</button>
-                                    <button onClick={() => setTradeMode({stock, type: 'SELL'})} style={{...btnSmall, background: '#dc3545'}}>Sell</button>
-                                </div>
-                            </td>
+                            <td style={tdStyle}>{stock.quantity}</td>
+                            <td style={tdStyle}>{formatMoney(stock.avg_cost)}</td>
+                            <td style={tdStyle}>{formatMoney(stock.total_cost)}</td> 
+                            <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy More</button></td>
                         </tr>
                     )))}
                 </tbody>
@@ -314,7 +306,6 @@ function App() {
 
           <br /> <br />
 
-          {/* MARKET DATA TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Market Data</h3></div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -332,7 +323,7 @@ function App() {
                             <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
                             <td style={tdStyle}><ChangeIndicator val={stock.today_pct} isPercent /></td>
                             <td style={tdStyle}><ChangeIndicator val={stock.rolling_pct} isPercent /></td>
-                            <td style={tdStyle}><button onClick={() => setTradeMode({stock, type: 'BUY'})} style={btnSmall}>Buy</button></td>
+                            <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy</button></td>
                         </tr>
                     )))}
                 </tbody>
@@ -340,39 +331,33 @@ function App() {
           </div>
         </div>
 
-        {/* UNIFIED TRADE MODAL (Buy & Sell) */}
-        {tradeMode && (
+        {/* BUY MODAL */}
+        {selectedStock && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
-                    <h2 style={{marginTop:0}}>{tradeMode.type} {tradeMode.stock.ticker}</h2>
+                    <h2 style={{marginTop:0}}>Buy {selectedStock.ticker}</h2>
                     <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
-                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Price:</span><strong>{formatMoney(tradeMode.stock.current_price)}</strong></div>
+                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Price:</span><strong>{formatMoney(selectedStock.current_price)}</strong></div>
                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}><span>Quantity:</span><input type="number" min="1" value={quantity} onChange={e=>setQuantity(e.target.value)} style={{width:'80px', padding:'5px'}} /></div>
-                         
-                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px'}}>
-                            <div style={{display:'flex', justifyContent:'space-between', fontSize: '13px', color: '#666'}}>
-                                <span>Estimated Fee ({tradeMode.type === 'BUY' ? '1%' : '2%'}):</span>
-                                <span>{formatMoney(estimatedFee)}</span>
-                            </div>
-                            <div style={{display:'flex', justifyContent:'space-between', fontWeight:'bold', fontSize: '18px', marginTop: '5px'}}>
-                                <span>{tradeMode.type === 'BUY' ? 'Total Cost:' : 'Net Proceeds:'}</span>
-                                <span style={{color: !canAfford && tradeMode.type === 'BUY' ? '#dc3545' : '#333'}}>
-                                    {formatMoney(totalImpact)}
-                                </span>
-                            </div>
+                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}>
+                             <span>Total Cost:</span>
+                             {/* Buying Power Check Logic */}
+                             <span style={{color: canAfford ? '#333' : '#dc3545', fontWeight:'bold'}}>
+                                 {formatMoney(tradeCost)}
+                             </span>
                          </div>
-                         {!canAfford && tradeMode.type === 'BUY' && <div style={{fontSize:'12px', color:'#dc3545', marginTop:'5px', textAlign:'right'}}>Insufficient Funds! (Available: {formatMoney(portfolio.cash)})</div>}
+                         {!canAfford && <div style={{fontSize:'12px', color:'#dc3545', marginTop:'5px', textAlign:'right'}}>Insufficient Funds! (Available: {formatMoney(portfolio.cash)})</div>}
                     </div>
-                    {tradeMsg && <div style={{marginBottom:'15px', color: tradeMsg.includes('Success')?'#28a745':'#dc3545', textAlign:'center', fontWeight: 'bold'}}>{tradeMsg}</div>}
+                    {tradeMsg && <div style={{marginBottom:'15px', color: tradeMsg.includes('Success')?'green':'red', textAlign:'center'}}>{tradeMsg}</div>}
                     <div style={{display:'flex', gap:'10px'}}>
-                        <button onClick={handleExecuteOrder} disabled={!canAfford && tradeMode.type === 'BUY'} style={{...btnBig, background: tradeMode.type === 'BUY' ? (canAfford ? '#28a745' : '#ccc') : '#dc3545', cursor: (canAfford || tradeMode.type === 'SELL') ? 'pointer' : 'not-allowed'}}>Confirm {tradeMode.type}</button>
-                        <button onClick={()=>{setTradeMode(null); setTradeMsg(''); setQuantity(1);}} style={{...btnBig, background:'#6c757d'}}>Cancel</button>
+                        <button onClick={handleBuy} disabled={!canAfford} style={{...btnBig, background: canAfford ? '#28a745' : '#ccc', cursor: canAfford ? 'pointer' : 'not-allowed'}}>Confirm Order</button>
+                        <button onClick={()=>{setSelectedStock(null); setTradeMsg('')}} style={{...btnBig, background:'#6c757d'}}>Cancel</button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* WALLET MODAL */}
+        {/* NEW: WALLET MODAL */}
         {showWallet && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
@@ -420,10 +405,10 @@ function App() {
 }
 
 // --- STYLES ---
-const MetricCard = ({ title, value, sub, highlight }) => (
+const MetricCard = ({ title, value, sub, color, highlight }) => (
     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: highlight ? '0 4px 12px rgba(0,123,255,0.2)' : '0 1px 3px rgba(0,0,0,0.1)', borderTop: highlight ? '4px solid #007bff' : 'none' }}>
         <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
-        <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}>{value}</div>
+        <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px', color: color || '#333' }}>{value}</div>
         <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>{sub}</div>
     </div>
 );
