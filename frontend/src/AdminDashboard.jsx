@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import SystemControl from './SystemControl';
 
 // POINT TO YOUR BACKEND
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
@@ -26,7 +27,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
         }
     };
 
-    // --- NEW: Toggle Admin Status ---
+    // --- Toggle Admin Status ---
     const toggleAdmin = async (userId, currentStatus) => {
         // 1. Optimistic UI Update (Change it on screen instantly)
         const newStatus = !currentStatus;
@@ -34,7 +35,6 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
         // 2. Send to Backend
         try {
-            const token = localStorage.getItem('token'); // Need token for permission? (Ideally yes, but simplified for now)
             await fetch(`${API_BASE}/api/auth/users/${userId}/role`, {
                 method: 'PUT',
                 headers: { 
@@ -80,6 +80,9 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <button onClick={onBack} style={btnSecondary}>← Back to Dashboard</button>
             </div>
 
+            {/* SYSTEM CONTROL WIDGET (New Addition) */}
+            <SystemControl apiBase={API_BASE} />
+
             {/* TABS */}
             <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #ddd', paddingBottom: '10px' }}>
                 <button onClick={() => setActiveTab('users')} style={activeTab === 'users' ? tabActive : tabInactive}>👥 User Management</button>
@@ -96,7 +99,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                             <tr style={{ background: '#f8f9fa', textAlign: 'left' }}>
                                 <th style={thStyle}>ID</th>
                                 <th style={thStyle}>Username</th>
-                                <th style={thStyle}>Is Admin?</th> {/* New Column */}
+                                <th style={thStyle}>Is Admin?</th>
                                 <th style={thStyle}>Created Date</th>
                                 <th style={thStyle}>Actions</th>
                             </tr>
@@ -152,7 +155,6 @@ function AdminDashboard({ onBack, onLoginAs }) {
             {/* CONTENT: SQL TOOL */}
             {activeTab === 'sql' && (
                 <div style={{ height: '800px', background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                    {/* Points to the file you moved to public/ */}
                     <iframe src="/sql_tool.html" style={{ width: '100%', height: '100%', border: 'none' }} title="SQL Tool"></iframe>
                 </div>
             )}
