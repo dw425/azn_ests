@@ -7,34 +7,27 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-// HELPER: Weekend Check
-const isMarketOpen = () => {
-    const today = new Date();
-    const day = today.getDay(); // 0 = Sunday, 6 = Saturday
-    return (day !== 0 && day !== 6);
-};
-
-// GET /api/stocks (The Market Data Table)
+// GET /api/stocks (Market Data Table)
 router.get('/', async (req, res) => {
     const client = await pool.connect();
     try {
-        const marketOpen = isMarketOpen();
         const today = new Date();
-        const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const targetDateRolling = new Date();
+        targetDateRolling.setDate(today.getDate() - 30); // 30 Days Ago
 
-        // 1. Get All Stocks
+        // 1. Get All Stocks (Live Data)
         const stocksRes = await client.query('SELECT * FROM stocks ORDER BY ticker ASC');
         const stocks = stocksRes.rows;
 
-        // 2. Get History for Calculations (Last 40 days to cover MTD and weekends)
+        // 2. Get History (Look back 365 days to find valid past data)
         const historyRes = await client.query(`
             SELECT stock_id, price, recorded_at 
             FROM stock_prices 
-            WHERE recorded_at >= NOW() - INTERVAL '40 days'
+            WHERE recorded_at >= NOW() - INTERVAL '365 days'
             ORDER BY recorded_at DESC
         `);
 
-        // Group history by Stock ID for fast lookup
+        // Group history by Stock ID
         const historyMap = {};
         historyRes.rows.forEach(record => {
             if (!historyMap[record.stock_id]) historyMap[record.stock_id] = [];
@@ -49,42 +42,38 @@ router.get('/', async (req, res) => {
             const history = historyMap[stock.stock_id] || [];
             const currentPrice = Number(stock.current_price);
             
-            // --- A. TODAY % ---
-            let todayChange = 0;
+            // FILTER: Strict "Past Only" Logic
+            // Ignore any data from the future (e.g. Dec 2026)
+            // validHistory is sorted Newest -> Oldest
+            const validHistory = history.filter(h => h.date <= today);
             
-            if (marketOpen) {
-                // Find the most recent "Close" price (the first record before today)
-                // Since our query is ORDER BY DESC, we skip the very first one if it's "now"
-                // Simplified: Just grab the first history point that isn't identical to current timestamp
-                // Or better: Use the first history record available as "Yesterday's Close"
-                const previousClose = history.length > 0 ? history[0].price : currentPrice;
-                
-                if (previousClose > 0) {
-                    todayChange = ((currentPrice - previousClose) / previousClose) * 100;
-                }
-            } else {
-                // IT IS THE WEEKEND: Force 0%
-                todayChange = 0;
+            // --- A. TODAY % (Live vs Last Close) ---
+            let todayChange = 0;
+            const lastCloseRecord = validHistory.length > 0 ? validHistory[0] : null;
+
+            if (lastCloseRecord && lastCloseRecord.price > 0) {
+                // Check for Weekend: If today is Sat/Sun, change is usually 0 unless we compare to Friday
+                // Standard: Compare Live Price vs Last Recorded Close
+                todayChange = ((currentPrice - lastCloseRecord.price) / lastCloseRecord.price) * 100;
             }
 
-            // --- B. MTD % (Month to Date) ---
-            let mtdChange = 0;
-            // Find the first price recorded on or after the 1st of the month
-            const startOfMonthRecord = history.find(h => h.date <= today && h.date >= firstOfMonth);
-            // If no record found (e.g. data starts mid-month), use the oldest record we have
-            const basePrice = startOfMonthRecord ? startOfMonthRecord.price : (history.length > 0 ? history[history.length-1].price : currentPrice);
+            // --- B. 30-DAY ROLLING % (Live vs ~30 Days Ago) ---
+            let rollingChange = 0;
+            // Find record closest to 30 days ago
+            // We search for the first record that is <= targetDateRolling
+            const pastRecord = validHistory.find(h => h.date <= targetDateRolling);
+            
+            // Fallback: If we don't have 30 days of data, use the oldest valid record we have
+            const baseRecord = pastRecord || (validHistory.length > 0 ? validHistory[validHistory.length - 1] : null);
 
-            if (basePrice > 0) {
-                mtdChange = ((currentPrice - basePrice) / basePrice) * 100;
+            if (baseRecord && baseRecord.price > 0) {
+                rollingChange = ((currentPrice - baseRecord.price) / baseRecord.price) * 100;
             }
 
             return {
                 ...stock,
-                day_change_pct: todayChange, // The frontend might need to update to read this key, or we simulate the random one
-                // To match your current Frontend logic which likely expects just 'day_change' or handles it in UI
-                // We will send 'day_change' as the percentage value to be safe based on your previous code
                 today_pct: todayChange, 
-                mtd_pct: mtdChange
+                rolling_pct: rollingChange // Updated Key Name
             };
         });
 
@@ -98,7 +87,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-// GET /api/stocks/:id (Single Stock Details)
+// GET /api/stocks/:id
 router.get('/:id', async (req, res) => {
     const client = await pool.connect();
     try {
