@@ -10,7 +10,7 @@ const stockRoutes = require('./backend/routes/stockRoutes');
 const orderRoutes = require('./backend/routes/orderRoutes');
 const portfolioRoutes = require('./backend/routes/portfolioRoutes'); // <--- NEW
 const walletRoutes = require('./backend/routes/walletRoutes');
-const adminRoutes = require('./routes/adminRoutes');
+const adminRoutes = require('./backend/routes/adminRoutes');
 
 
 
