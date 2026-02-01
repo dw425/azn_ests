@@ -7,7 +7,7 @@ const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard');
+  const [view, setView] = useState('dashboard'); // 'dashboard' or 'admin'
   
   // DATA STATES
   const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null }); 
@@ -49,21 +49,26 @@ function App() {
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
+        // 1. Portfolio Summary
         const portRes = await fetch(`${API_BASE}/api/portfolio/summary/${userId}`);
         const portData = await portRes.json();
         if (!portData.error) setPortfolio(portData);
 
+        // 2. Holdings (Positions)
         const holdRes = await fetch(`${API_BASE}/api/portfolio/holdings/${userId}`);
         const holdData = await holdRes.json();
         setHoldings(Array.isArray(holdData) ? holdData : []);
 
+        // 3. Chart Data (30 Days)
         const chartRes = await fetch(`${API_BASE}/api/portfolio/chart/${userId}`);
         const chartData = await chartRes.json();
         setChartData(Array.isArray(chartData) ? chartData : []);
 
+        // 4. Market Data (Bottom Table)
         const marketRes = await fetch(`${API_BASE}/api/stocks`);
         const marketData = await marketRes.json();
         setMarket(Array.isArray(marketData) ? marketData : []);
+
     } catch (err) {
         console.error("Dashboard Load Error:", err);
     } finally {
@@ -71,6 +76,7 @@ function App() {
     }
   };
 
+  // --- HANDLERS ---
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -84,8 +90,7 @@ function App() {
       if (user && user.is_admin) {
           setView('admin');
       } else {
-          // If not admin, FORCE LOGOUT
-          handleLogout();
+          handleLogout(); // Kick them out if they try to bypass
           alert("⛔ Access Denied: You are not an Admin.");
       }
   };
@@ -115,7 +120,6 @@ function App() {
 
       if (isLogin) {
         localStorage.setItem('token', data.token);
-        // Important: Backend now sends 'is_admin' inside data.user
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
@@ -162,26 +166,29 @@ function App() {
     }
   };
 
+  // --- RENDER HELPERS ---
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   
   const ChangeIndicator = ({ val, isPercent }) => {
      if(!val || val === 0) return <span style={{color:'#999', fontSize:'12px'}}>-</span >;
      const color = val > 0 ? '#28a745' : '#dc3545';
      const sign = val > 0 ? '+' : '';
-     return <span style={{color, fontWeight:'bold'}}>{sign}{isPercent ? val.toFixed(2) + '%' : formatMoney(val)}</span>;
+     return <span style={{color, fontWeight:'bold'}}>{sign}{isPercent ? Number(val).toFixed(2) + '%' : formatMoney(val)}</span>;
   };
 
+  // --- VIEW: ADMIN PANEL ---
   if (token && view === 'admin') {
       return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={handleLoginAs} />;
   }
 
+  // --- VIEW: DASHBOARD ---
   if (token) {
-    // Check if current user is admin for button styling
     const isAdmin = user?.is_admin;
 
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
         
+        {/* HEADER */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -198,17 +205,17 @@ function App() {
           
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
             
-            {/* SECURITY BUTTON */}
+            {/* ADMIN BUTTON */}
             <button 
                 onClick={handleAdminClick} 
                 style={{ 
                     padding: '8px 16px', 
                     fontSize: '13px', 
-                    background: isAdmin ? '#343a40' : '#e9ecef', // Dark if Admin, Grey if not
-                    color: isAdmin ? '#fff' : '#adb5bd',         // White text if Admin, Grey if not
+                    background: isAdmin ? '#343a40' : '#e9ecef', 
+                    color: isAdmin ? '#fff' : '#adb5bd',        
                     border: 'none', 
                     borderRadius: '4px', 
-                    cursor: isAdmin ? 'pointer' : 'not-allowed', // Pointer vs Stop sign
+                    cursor: isAdmin ? 'pointer' : 'not-allowed',
                     fontWeight: 'bold',
                     display: 'flex', alignItems: 'center', gap: '5px',
                     transition: 'all 0.2s'
@@ -226,6 +233,7 @@ function App() {
 
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
           
+          {/* TOP METRICS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
@@ -251,6 +259,7 @@ function App() {
             </div>
           </div>
 
+          {/* CHART AREA */}
           <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
             <div style={{ height: '300px', width: '100%' }}>
@@ -265,13 +274,14 @@ function App() {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
                         <XAxis dataKey="day" hide />
                         <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
-                        <Tooltip formatter={(val) => formatMoney(val)} />
+                        <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => `Day ${label}`} />
                         <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
           </div>
 
+          {/* POSITIONS TABLE */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Positions</h3>
@@ -314,6 +324,7 @@ function App() {
 
           <br /> <br />
 
+          {/* MARKET DATA TABLE (UPDATED) */}
           <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
             <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}>
                 <h3 style={{ margin: 0 }}>Market Data</h3>
@@ -325,8 +336,8 @@ function App() {
                         <th style={{...thStyle, width: '200px'}}>Company</th> 
                         <th style={thStyle}>Sector</th>
                         <th style={thStyle}>Price</th>
-                        <th style={thStyle}>Today %</th>
-                        <th style={thStyle}>MTD %</th>
+                        <th style={thStyle}>Today %</th> {/* Now Real Data */}
+                        <th style={thStyle}>MTD %</th>   {/* Now Real Data */}
                         <th style={thStyle}>Action</th>
                     </tr>
                 </thead>
@@ -340,8 +351,11 @@ function App() {
                                 <td style={{...tdStyle, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{stock.company_name}</td>
                                 <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
                                 <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
-                                <td style={tdStyle}><ChangeIndicator val={(Math.random() * 4) - 2} isPercent /></td>
-                                <td style={tdStyle}><ChangeIndicator val={(Math.random() * 10) - 5} isPercent /></td>
+                                
+                                {/* UPDATED TO USE REAL DATA KEYS */}
+                                <td style={tdStyle}><ChangeIndicator val={stock.today_pct} isPercent /></td>
+                                <td style={tdStyle}><ChangeIndicator val={stock.mtd_pct} isPercent /></td>
+                                
                                 <td style={tdStyle}><button onClick={() => setSelectedStock(stock)} style={btnSmall}>Buy</button></td>
                             </tr>
                         ))
@@ -351,6 +365,7 @@ function App() {
           </div>
         </div>
 
+        {/* BUY MODAL */}
         {selectedStock && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
@@ -409,7 +424,7 @@ function App() {
   );
 }
 
-// STYLES (Unchanged)
+// --- STYLES ---
 const MetricCard = ({ title, value, sub, color, highlight }) => (
     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: highlight ? '0 4px 12px rgba(0,123,255,0.2)' : '0 1px 3px rgba(0,0,0,0.1)', borderTop: highlight ? '4px solid #007bff' : 'none' }}>
         <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
