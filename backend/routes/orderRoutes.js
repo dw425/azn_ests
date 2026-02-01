@@ -32,18 +32,29 @@ router.post('/buy', async (req, res) => {
 
   const client = await pool.connect();
   try {
-    const { user_id, stock_id, quantity } = req.body;
+    // FIX 1: Accept both snake_case (DB standard) and camelCase (React standard)
+    const { user_id, userId, stock_id, stockId, quantity } = req.body;
+    
+    // Normalize inputs to the ones we use in queries
+    const finalUserId = user_id || userId;
+    const finalStockId = stock_id || stockId;
+
+    // FIX 2: Validate Data before crashing
+    if (!finalUserId || !finalStockId || !quantity) {
+        return res.status(400).json({ error: `Missing Data. Received User: ${finalUserId}, Stock: ${finalStockId}` });
+    }
     
     await client.query('BEGIN');
 
     // A. Check Wallet Balance
-    const walletRes = await client.query('SELECT * FROM wallets WHERE user_id = $1', [user_id]);
-    if (walletRes.rows.length === 0) throw new Error('Wallet not found');
+    const walletRes = await client.query('SELECT * FROM wallets WHERE user_id = $1', [finalUserId]);
+    if (walletRes.rows.length === 0) throw new Error(`Wallet not found for User ID ${finalUserId}`);
     const wallet = walletRes.rows[0];
 
     // B. Get Current Stock Price
-    const stockRes = await client.query('SELECT current_price FROM stocks WHERE stock_id = $1', [stock_id]);
-    if (stockRes.rows.length === 0) throw new Error('Stock not found');
+    const stockRes = await client.query('SELECT current_price FROM stocks WHERE stock_id = $1', [finalStockId]);
+    if (stockRes.rows.length === 0) throw new Error(`Stock not found for Stock ID ${finalStockId}`);
+    
     const price = Number(stockRes.rows[0].current_price);
     const totalCost = price * Number(quantity);
 
@@ -60,7 +71,7 @@ router.post('/buy', async (req, res) => {
     await client.query(
       `INSERT INTO orders (user_id, stock_id, order_type, quantity, price_per_share, status, created_at) 
        VALUES ($1, $2, 'BUY', $3, $4, 'COMPLETED', NOW())`,
-      [user_id, stock_id, quantity, price]
+      [finalUserId, finalStockId, quantity, price]
     );
 
     await client.query('COMMIT');
@@ -69,13 +80,14 @@ router.post('/buy', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
-    res.status(500).json({ error: 'Transaction Failed' });
+    // FIX 3: Send the ACTUAL error message to the UI
+    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-// 2. SELL STOCK (New Feature!)
+// 2. SELL STOCK
 router.post('/sell', async (req, res) => {
   // STEP 1: Check Market Hours
   const isOpen = await checkMarketStatus(res);
@@ -83,19 +95,25 @@ router.post('/sell', async (req, res) => {
 
   const client = await pool.connect();
   try {
-    const { user_id, stock_id, quantity } = req.body;
+    // FIX 1: Normalize IDs here too
+    const { user_id, userId, stock_id, stockId, quantity } = req.body;
+    const finalUserId = user_id || userId;
+    const finalStockId = stock_id || stockId;
+
+    // FIX 2: Validate Data
+    if (!finalUserId || !finalStockId) {
+        return res.status(400).json({ error: "Missing Data: userId or stockId" });
+    }
     
     await client.query('BEGIN');
 
     // A. Verify User Has the Stock (Simple Check)
-    // In a real app, we would query a 'portfolio' table. 
-    // Here we sum their previous orders to see if they own enough.
     const portfolioRes = await client.query(`
       SELECT 
         SUM(CASE WHEN order_type = 'BUY' THEN quantity ELSE -quantity END) as net_qty 
       FROM orders 
       WHERE user_id = $1 AND stock_id = $2
-    `, [user_id, stock_id]);
+    `, [finalUserId, finalStockId]);
 
     const currentQty = portfolioRes.rows[0].net_qty || 0;
     
@@ -105,18 +123,20 @@ router.post('/sell', async (req, res) => {
     }
 
     // B. Get Price
-    const stockRes = await client.query('SELECT current_price FROM stocks WHERE stock_id = $1', [stock_id]);
+    const stockRes = await client.query('SELECT current_price FROM stocks WHERE stock_id = $1', [finalStockId]);
+    if (stockRes.rows.length === 0) throw new Error('Stock not found');
+
     const price = Number(stockRes.rows[0].current_price);
     const totalValue = price * Number(quantity);
 
     // C. Add Money to Wallet
-    await client.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [totalValue, user_id]);
+    await client.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [totalValue, finalUserId]);
 
     // D. Record Order (SELL)
     await client.query(
       `INSERT INTO orders (user_id, stock_id, order_type, quantity, price_per_share, status, created_at) 
        VALUES ($1, $2, 'SELL', $3, $4, 'COMPLETED', NOW())`,
-      [user_id, stock_id, quantity, price]
+      [finalUserId, finalStockId, quantity, price]
     );
 
     await client.query('COMMIT');
@@ -125,7 +145,8 @@ router.post('/sell', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
-    res.status(500).json({ error: 'Transaction Failed' });
+    // FIX 3: Send the ACTUAL error message to the UI
+    res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
