@@ -9,6 +9,8 @@ const authRoutes = require('./backend/routes/authRoutes');
 const stockRoutes = require('./backend/routes/stockRoutes'); 
 const orderRoutes = require('./backend/routes/orderRoutes');
 const portfolioRoutes = require('./backend/routes/portfolioRoutes'); // <--- NEW
+const walletRoutes = require('./backend/routes/walletRoutes');
+
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -33,6 +35,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/stocks', stockRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/portfolio', portfolioRoutes); // <--- NEW
+app.use('/api/wallet', walletRoutes);
+
+
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
