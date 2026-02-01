@@ -10,6 +10,9 @@ const stockRoutes = require('./backend/routes/stockRoutes');
 const orderRoutes = require('./backend/routes/orderRoutes');
 const portfolioRoutes = require('./backend/routes/portfolioRoutes'); // <--- NEW
 const walletRoutes = require('./backend/routes/walletRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+
+
 
 
 const app = express();
@@ -36,7 +39,7 @@ app.use('/api/stocks', stockRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/portfolio', portfolioRoutes); // <--- NEW
 app.use('/api/wallet', walletRoutes);
-
+app.use('/api/admin', adminRoutes);
 
 
 app.listen(PORT, () => {
