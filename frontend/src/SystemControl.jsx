@@ -1,26 +1,28 @@
 // frontend/src/SystemControl.jsx
 import React, { useState, useEffect } from 'react';
 
-const SystemControl = () => {
+// 1. UPDATE: Accept 'apiBase' as a prop
+const SystemControl = ({ apiBase }) => {
     const [settings, setSettings] = useState({
         market_status: 'OPEN',
-        simulated_date: new Date().toISOString().slice(0, 16) // Format for input
+        simulated_date: new Date().toISOString().slice(0, 16)
     });
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
 
-    // 1. Load current settings on mount
+    // Load settings when the component mounts (or when apiBase changes)
     useEffect(() => {
-        fetchSettings();
-    }, []);
+        if (apiBase) {
+            fetchSettings();
+        }
+    }, [apiBase]);
 
     const fetchSettings = async () => {
         try {
-            // Note: Make sure your API_URL matches your setup (e.g. localhost:5000 or your Render URL)
-            const response = await fetch('http://localhost:5000/api/admin/settings');
+            // 2. UPDATE: Use apiBase instead of localhost
+            const response = await fetch(`${apiBase}/api/admin/settings`);
             const data = await response.json();
             
-            // Format date for the datetime-local input field
             const formattedDate = new Date(data.simulated_date).toISOString().slice(0, 16);
             
             setSettings({
@@ -32,24 +34,29 @@ const SystemControl = () => {
         }
     };
 
-    // 2. Save changes to Backend
     const handleSave = async () => {
         setLoading(true);
         try {
-            await fetch('http://localhost:5000/api/admin/settings', {
+            // 3. UPDATE: Use apiBase here too
+            const res = await fetch(`${apiBase}/api/admin/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-            setMessage('Settings Updated Successfully!');
-            setTimeout(() => setMessage(''), 3000); // Clear message after 3s
+            
+            if (res.ok) {
+                setMessage('Settings Updated Successfully!');
+            } else {
+                setMessage('Error updating settings');
+            }
+            
+            setTimeout(() => setMessage(''), 3000);
         } catch (err) {
             setMessage('Error updating settings');
         }
         setLoading(false);
     };
 
-    // Toggle Handler
     const toggleMarket = () => {
         setSettings(prev => ({
             ...prev,
@@ -95,7 +102,6 @@ const SystemControl = () => {
     );
 };
 
-// Simple inline styles for quick layout
 const styles = {
     container: {
         background: '#fff',
