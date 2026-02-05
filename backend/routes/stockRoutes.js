@@ -1,15 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { Pool } = require('pg');
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-});
+const db = require('../db'); // <--- SINGLETON CONNECTION
 
 // GET /api/stocks
 router.get('/', async (req, res) => {
-    const client = await pool.connect();
+    // We can use db.query directly (it handles the pool)
     try {
         const query = `
             WITH latest_prices AS (
@@ -29,10 +24,9 @@ router.get('/', async (req, res) => {
                 s.ticker, 
                 s.company_name, 
                 s.sector,
-                s.volatility,  -- <--- NEW: Now exposed to Frontend
+                s.volatility,
                 s.current_price,
                 
-                -- WEEKEND LOCK: If Sat(6) or Sun(7), force 0. Else calculate real change.
                 CASE 
                     WHEN EXTRACT(ISODOW FROM NOW()) IN (6, 7) THEN 0
                     WHEN lp.close_price IS NOT NULL AND lp.close_price > 0 
@@ -40,7 +34,6 @@ router.get('/', async (req, res) => {
                     ELSE 0 
                 END as today_pct,
 
-                -- Rolling 30 Day %
                 CASE 
                     WHEN tdp.old_price IS NOT NULL AND tdp.old_price > 0 
                     THEN ((s.current_price - tdp.old_price) / tdp.old_price) * 100 
@@ -53,28 +46,23 @@ router.get('/', async (req, res) => {
             ORDER BY s.ticker ASC;
         `;
 
-        const result = await client.query(query);
+        const result = await db.query(query);
         res.json(result.rows);
 
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
-    } finally {
-        client.release();
     }
 });
 
 router.get('/:id', async (req, res) => {
-    const client = await pool.connect();
     try {
         const { id } = req.params;
-        const result = await client.query('SELECT * FROM stocks WHERE stock_id = $1', [id]);
+        const result = await db.query('SELECT * FROM stocks WHERE stock_id = $1', [id]);
         if (result.rows.length === 0) return res.status(404).json({ error: 'Stock not found' });
         res.json(result.rows[0]);
     } catch (err) {
         res.status(500).json({ error: err.message });
-    } finally {
-        client.release();
     }
 });
 
