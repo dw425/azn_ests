@@ -8,11 +8,12 @@ function AdminDashboard({ onBack, onLoginAs }) {
     // Data States
     const [users, setUsers] = useState([]);
     const [stocks, setStocks] = useState([]);
-    const [settings, setSettings] = useState({ market_status: 'OPEN', simulated_date: '' });
+    const [settings, setSettings] = useState({ market_status: 'OPEN', simulated_date: new Date().toISOString() });
     
     // Status Messages
     const [msg, setMsg] = useState('');
     const [stockMsg, setStockMsg] = useState('');
+    const [sqlOutput, setSqlOutput] = useState(null); // For SQL Tool results
 
     // User Form State
     const [newUser, setNewUser] = useState('');
@@ -27,9 +28,10 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- INITIAL LOAD ---
     useEffect(() => {
+        // Always fetch settings to show the clock
+        fetchSettings();
         if (activeTab === 'users') fetchUsers();
         if (activeTab === 'stocks') fetchStocks();
-        if (activeTab === 'settings') fetchSettings();
     }, [activeTab]);
 
     // --- FETCHERS ---
@@ -57,7 +59,27 @@ function AdminDashboard({ onBack, onLoginAs }) {
         } catch (err) { console.error(err); }
     };
 
-    // --- SYSTEM ACTIONS ---
+    // --- SYSTEM & TIME CONTROLS (RESTORED) ---
+    const updateSettings = async (updates) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...settings, ...updates })
+            });
+            const data = await res.json();
+            setSettings(data);
+            setMsg('✅ System Settings Updated');
+        } catch (err) { setMsg('❌ Error updating settings'); }
+    };
+
+    const advanceTime = (hours) => {
+        const currentDate = new Date(settings.simulated_date || Date.now());
+        currentDate.setHours(currentDate.getHours() + hours);
+        updateSettings({ simulated_date: currentDate.toISOString() });
+    };
+
+    // --- HISTORY GENERATOR ---
     const handleGenerateHistory = async () => {
         if(!window.confirm("This will generate 1 year of price history. It takes about 10-20 seconds. Continue?")) return;
         setMsg('⏳ Generating History... Please wait...');
@@ -73,17 +95,17 @@ function AdminDashboard({ onBack, onLoginAs }) {
         } catch (err) { setMsg(`❌ Network Error: ${err.message}`); }
     };
 
-    const updateSettings = async (newStatus) => {
+    // --- SQL QUICK ACTIONS (RESTORED) ---
+    const runQuickSql = async (query) => {
         try {
-            const res = await fetch(`${API_BASE}/api/admin/settings`, {
+            const res = await fetch(`${API_BASE}/api/admin/run-sql`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...settings, market_status: newStatus })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ query })
             });
             const data = await res.json();
-            setSettings(data);
-            setMsg(`System updated: Market is ${newStatus}`);
-        } catch (err) { setMsg('Error updating settings'); }
+            setSqlOutput(data);
+        } catch (err) { setSqlOutput({ error: err.message }); }
     };
 
     // --- USER MANAGEMENT ---
@@ -142,7 +164,6 @@ function AdminDashboard({ onBack, onLoginAs }) {
         try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'DELETE' }); fetchStocks(); } catch(err) { console.error(err); }
     };
 
-    // Inline Update (Restored)
     const handleUpdateStock = async (ticker, newVol, newBase, newSector) => {
         try {
             await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, {
@@ -150,20 +171,35 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ volatility: newVol, base_price: newBase, sector: newSector })
             });
-            // Don't alert, just refresh silently or show toast
             console.log("Stock Updated");
         } catch(err) { console.error(err); }
     };
 
+    // --- RENDER ---
     return (
         <div style={{ padding: '30px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif' }}>
-            {/* HEADER */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+            
+            {/* HEADER & SYSTEM STATUS */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
                 <div>
-                    <h1 style={{ margin: 0, color: '#333' }}>🔒 Admin<span style={{color:'#d32f2f'}}>Panel</span></h1>
-                    <div style={{fontSize:'12px', color:'#666', marginTop:'5px'}}>System Status: <strong style={{color: settings.market_status==='OPEN'?'green':'red'}}>{settings.market_status}</strong></div>
+                    <h1 style={{ margin: '0 0 10px 0', color: '#333' }}>🔒 Admin<span style={{color:'#d32f2f'}}>Panel</span></h1>
+                    <div style={{ background:'white', padding:'10px 20px', borderRadius:'8px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', display:'flex', alignItems:'center', gap:'15px' }}>
+                        <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Market Status</div>
+                            <div style={{fontWeight:'bold', color: settings.market_status==='OPEN'?'#28a745':'#dc3545'}}>{settings.market_status}</div>
+                        </div>
+                        <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                        <div>
+                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Simulated Time</div>
+                            <div style={{fontWeight:'bold', fontSize:'14px'}}>{new Date(settings.simulated_date || Date.now()).toLocaleString()}</div>
+                        </div>
+                    </div>
                 </div>
-                <button onClick={onBack} style={btnSecondary}>← Back to Dashboard</button>
+                <div style={{display:'flex', gap:'10px', flexDirection:'column', alignItems:'flex-end'}}>
+                    <button onClick={onBack} style={btnSecondary}>← Back to Dashboard</button>
+                    {/* GENERATE HISTORY BUTTON */}
+                    <button onClick={handleGenerateHistory} style={{...btnSmall, background:'#6f42c1', fontSize:'13px', padding:'8px 16px', boxShadow:'0 2px 5px rgba(0,0,0,0.2)'}}>⚡ Generate History</button>
+                </div>
             </div>
 
             {/* STATUS MESSAGE */}
@@ -174,11 +210,8 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <button onClick={() => setActiveTab('stocks')} style={activeTab === 'stocks' ? tabActive : tabInactive}>📈 Stocks</button>
                 <button onClick={() => setActiveTab('users')} style={activeTab === 'users' ? tabActive : tabInactive}>👥 Users</button>
                 <button onClick={() => setActiveTab('create')} style={activeTab === 'create' ? tabActive : tabInactive}>➕ Create User</button>
-                <button onClick={() => setActiveTab('settings')} style={activeTab === 'settings' ? tabActive : tabInactive}>⚙️ Settings</button>
+                <button onClick={() => setActiveTab('settings')} style={activeTab === 'settings' ? tabActive : tabInactive}>⚙️ System Control</button>
                 <button onClick={() => setActiveTab('sql')} style={activeTab === 'sql' ? tabActive : tabInactive}>🛠 SQL Tool</button>
-                
-                {/* GENERATE HISTORY BUTTON */}
-                <button onClick={handleGenerateHistory} style={{...btnSmall, marginLeft:'auto', background:'#6f42c1', fontSize:'14px', padding:'8px 16px', boxShadow:'0 2px 5px rgba(0,0,0,0.2)'}}>⚡ Generate History</button>
             </div>
 
             {/* --- TAB CONTENT --- */}
@@ -266,18 +299,46 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
             {activeTab === 'settings' && (
                 <div style={cardStyle}>
-                    <h3>System Control</h3>
-                    <p>Manage the global simulation state.</p>
-                    <div style={{display:'flex', gap:'20px', marginTop:'20px'}}>
-                        <button onClick={() => updateSettings('OPEN')} style={{...btnBig, background: settings.market_status==='OPEN' ? '#28a745' : '#eee', color: settings.market_status==='OPEN'?'white':'#999'}}>Market OPEN</button>
-                        <button onClick={() => updateSettings('CLOSED')} style={{...btnBig, background: settings.market_status==='CLOSED' ? '#dc3545' : '#eee', color: settings.market_status==='CLOSED'?'white':'#999'}}>Market CLOSED</button>
+                    <h3>Time & Market Control</h3>
+                    <div style={{display:'flex', gap:'20px', marginBottom:'30px'}}>
+                        <button onClick={() => updateSettings({market_status: 'OPEN'})} style={{...btnBig, background: settings.market_status==='OPEN' ? '#28a745' : '#eee', color: settings.market_status==='OPEN'?'white':'#999'}}>Market OPEN</button>
+                        <button onClick={() => updateSettings({market_status: 'CLOSED'})} style={{...btnBig, background: settings.market_status==='CLOSED' ? '#dc3545' : '#eee', color: settings.market_status==='CLOSED'?'white':'#999'}}>Market CLOSED</button>
+                    </div>
+
+                    <h4>Time Machine</h4>
+                    <p style={{color:'#666', marginBottom:'10px'}}>Jump forward in the simulation.</p>
+                    <div style={{display:'flex', gap:'10px'}}>
+                        <button onClick={() => advanceTime(1)} style={btnSecondary}>+1 Hour</button>
+                        <button onClick={() => advanceTime(24)} style={btnSecondary}>+1 Day</button>
+                        <button onClick={() => advanceTime(168)} style={btnSecondary}>+1 Week</button>
                     </div>
                 </div>
             )}
 
             {activeTab === 'sql' && (
-                <div style={{ height: '800px', background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                    <iframe src="/sql_tool.html" style={{ width: '100%', height: '100%', border: 'none' }} title="SQL Tool"></iframe>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 3fr', gap:'20px'}}>
+                    <div style={cardStyle}>
+                        <h4>Quick Actions</h4>
+                        <button onClick={() => runQuickSql('SELECT * FROM users ORDER BY created_at DESC LIMIT 10')} style={{...btnSecondary, width:'100%', marginBottom:'10px'}}>Show Recent Users</button>
+                        <button onClick={() => runQuickSql('SELECT * FROM stocks')} style={{...btnSecondary, width:'100%', marginBottom:'10px'}}>Show All Stocks</button>
+                        <button onClick={() => runQuickSql('SELECT * FROM holdings')} style={{...btnSecondary, width:'100%', marginBottom:'10px'}}>Show All Holdings</button>
+                        <button onClick={() => runQuickSql(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)} style={{...btnSecondary, width:'100%', marginBottom:'10px'}}>Show Schema</button>
+                    </div>
+                    
+                    <div style={{...cardStyle, height: '600px', display:'flex', flexDirection:'column'}}>
+                        {/* Use the Iframe for complex queries, or show quick results */}
+                        {sqlOutput ? (
+                            <div style={{overflow:'auto', background:'#f8f9fa', padding:'10px', borderRadius:'4px', height:'100%'}}>
+                                <div style={{marginBottom:'10px', display:'flex', justifyContent:'space-between'}}>
+                                    <strong>Result ({sqlOutput.rowCount || 0} rows)</strong>
+                                    <button onClick={() => setSqlOutput(null)} style={{fontSize:'12px', cursor:'pointer', border:'none', background:'none', color:'blue'}}>Clear</button>
+                                </div>
+                                <pre>{JSON.stringify(sqlOutput.rows, null, 2)}</pre>
+                            </div>
+                        ) : (
+                             <iframe src="/sql_tool.html" style={{ width: '100%', height: '100%', border: 'none' }} title="SQL Tool"></iframe>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
