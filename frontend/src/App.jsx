@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import AdminDashboard from './AdminDashboard.jsx'; 
 
-// CONFIRMED API URL
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 
 function App() {
@@ -16,25 +15,29 @@ function App() {
   const [market, setMarket] = useState([]);         
   const [chartData, setChartData] = useState([]);   
 
-  // UI STATES
-  const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
+  // AUTH STATES (SPLIT)
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+
+  const [authError, setAuthError] = useState('');
+  const [regSuccess, setRegSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false); 
 
-  // MODALS & TRADING STATE
+  // MODALS & TRADING
   const [selectedStock, setSelectedStock] = useState(null); 
-  const [modalMode, setModalMode] = useState('BUY');        // 'BUY' or 'SELL'
+  const [modalMode, setModalMode] = useState('BUY');        
   const [showWallet, setShowWallet] = useState(false);      
   const [walletAmount, setWalletAmount] = useState('');     
   const [quantity, setQuantity] = useState(1);
   const [tradeMsg, setTradeMsg] = useState('');
   const [walletMsg, setWalletMsg] = useState('');
   
-  // STEP 2: SAFETY STATE
+  // SAFETY
   const [showHighValueWarning, setShowHighValueWarning] = useState(false);
 
   // --- INITIAL LOAD ---
@@ -103,12 +106,17 @@ function App() {
     setView('dashboard'); 
   };
 
-  const handleAuth = async (e) => {
+  // --- SPLIT AUTH HANDLER ---
+  const handleAuth = async (type, e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-    const endpoint = isLogin ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`;
-    const payload = isLogin ? { username, password } : { username, email, password };
+    setAuthError('');
+    setRegSuccess('');
+
+    const endpoint = type === 'LOGIN' ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`;
+    const payload = type === 'LOGIN' 
+        ? { username: loginUsername, password: loginPassword } 
+        : { username: regUsername, email: regEmail, password: regPassword };
 
     try {
       const res = await fetch(endpoint, {
@@ -117,30 +125,31 @@ function App() {
         body: JSON.stringify(payload)
       });
       const data = await res.json();
+      
       if (!res.ok) throw new Error(data.error);
 
-      if (isLogin) {
+      if (type === 'LOGIN') {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
         loadDashboard(data.user.id);
       } else {
-        setIsLogin(true);
-        setError('Success! Please log in.');
+        setRegSuccess('✅ Account created! Please log in on the right.');
+        setRegUsername('');
+        setRegEmail('');
+        setRegPassword('');
       }
     } catch (err) {
-      setError(err.message);
+      setAuthError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- STEP 2: SAFETY INTERCEPTOR ---
+  // --- SAFETY INTERCEPTOR ---
   const initiateTrade = () => {
       const tradeValue = selectedStock.current_price * quantity;
-      
-      // Safety Check: Is this a High Value Trade?
       if (tradeValue >= 10000) {
           setShowHighValueWarning(true);
       } else {
@@ -148,9 +157,8 @@ function App() {
       }
   };
 
-  // --- EXECUTE TRADE (API CALL) ---
   const executeTrade = async () => {
-    setShowHighValueWarning(false); // Close warning if open
+    setShowHighValueWarning(false);
     setTradeMsg('Processing...');
     
     if(!user || !selectedStock) return;
@@ -185,7 +193,6 @@ function App() {
     }
   };
 
-  // --- MODAL TRIGGERS ---
   const openBuyModal = (stock) => {
       setSelectedStock(stock);
       setModalMode('BUY');
@@ -209,7 +216,6 @@ function App() {
       }
   };
 
-  // --- WALLET HANDLER ---
   const handleAddFunds = async () => {
       setWalletMsg('Processing...');
       try {
@@ -262,17 +268,15 @@ function App() {
       return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={handleLoginAs} />;
   }
 
+  // LOGGED IN DASHBOARD
   if (token) {
     const isAdmin = user?.is_admin;
-    
-    // --- VALIDATION & CALCS ---
     const tradeValue = selectedStock ? selectedStock.current_price * quantity : 0;
     const buyingPowerUsed = portfolio.cash > 0 ? (tradeValue / portfolio.cash) * 100 : 0;
     
     let canTrade = true;
     let errorReason = "";
     
-    // Check ownership for Sell Mode
     const ownedStock = holdings.find(h => h.stock_id === selectedStock?.stock_id);
     const ownedQty = ownedStock ? Number(ownedStock.quantity) : 0;
 
@@ -290,8 +294,6 @@ function App() {
 
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
-        
-        {/* HEADER */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px' }}><span style={{ color: '#d32f2f' }}>C</span><span style={{ color: '#1565c0' }}>D</span><span style={{ color: '#2e7d32' }}>M</span></div>
@@ -309,7 +311,6 @@ function App() {
         {dataLoading && <LoadingSpinner />}
 
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
-          
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
             <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
             <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
@@ -399,7 +400,7 @@ function App() {
           </div>
         </div>
 
-        {/* --- HIGH VALUE WARNING MODAL (STEP 2) --- */}
+        {/* WARNING MODAL */}
         {showHighValueWarning && (
              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '350px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', borderTop: '6px solid #ffc107', textAlign: 'center' }}>
@@ -421,18 +422,15 @@ function App() {
              </div>
         )}
 
-        {/* UNIFIED TRADING MODAL */}
+        {/* TRADING MODAL */}
         {selectedStock && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
-                    
                     <h2 style={{marginTop:0, color: modalMode === 'BUY' ? '#28a745' : '#dc3545'}}>
                         {modalMode === 'BUY' ? 'Buy' : 'Sell'} {selectedStock.ticker}
                     </h2>
-
                     <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
                          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Price:</span><strong>{formatMoney(selectedStock.current_price)}</strong></div>
-                         
                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px'}}>
                              <span>Quantity:</span>
                              <div style={{display:'flex', gap:'5px'}}>
@@ -442,16 +440,12 @@ function App() {
                                 )}
                              </div>
                          </div>
-
                          <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}>
                              <span>Total Value:</span>
-                             <span style={{color: canTrade ? '#333' : '#dc3545', fontWeight:'bold'}}>
-                                 {formatMoney(tradeValue)}
-                             </span>
+                             <span style={{color: canTrade ? '#333' : '#dc3545', fontWeight:'bold'}}>{formatMoney(tradeValue)}</span>
                          </div>
                          {!canTrade && <div style={{fontSize:'12px', color:'#dc3545', marginTop:'5px', textAlign:'right'}}>{errorReason}</div>}
                          
-                         {/* STEP 2: BUYING POWER VISUAL */}
                          {modalMode === 'BUY' && (
                              <div style={{marginTop:'15px'}}>
                                  <div style={{display:'flex', justifyContent:'space-between', fontSize:'11px', color:'#666', marginBottom:'2px'}}>
@@ -459,24 +453,14 @@ function App() {
                                      <span>{buyingPowerUsed > 100 ? 100 : buyingPowerUsed.toFixed(1)}%</span>
                                  </div>
                                  <div style={{width:'100%', height:'6px', background:'#e9ecef', borderRadius:'3px', overflow:'hidden'}}>
-                                     <div style={{
-                                         width: `${Math.min(buyingPowerUsed, 100)}%`, 
-                                         height:'100%', 
-                                         background: canTrade ? '#28a745' : '#dc3545',
-                                         transition: 'width 0.3s ease'
-                                     }}></div>
+                                     <div style={{width: `${Math.min(buyingPowerUsed, 100)}%`, height:'100%', background: canTrade ? '#28a745' : '#dc3545', transition: 'width 0.3s ease'}}></div>
                                  </div>
                              </div>
                          )}
                     </div>
-
                     {tradeMsg && <div style={{marginBottom:'15px', color: tradeMsg.includes('Success')?'green':'red', textAlign:'center'}}>{tradeMsg}</div>}
-                    
                     <div style={{display:'flex', gap:'10px'}}>
-                        {/* CALL initiateTrade INSTEAD of executeTrade */}
-                        <button onClick={initiateTrade} disabled={!canTrade} style={{...btnBig, background: !canTrade ? '#ccc' : (modalMode === 'BUY' ? '#28a745' : '#dc3545'), cursor: canTrade ? 'pointer' : 'not-allowed'}}>
-                            Confirm {modalMode}
-                        </button>
+                        <button onClick={initiateTrade} disabled={!canTrade} style={{...btnBig, background: !canTrade ? '#ccc' : (modalMode === 'BUY' ? '#28a745' : '#dc3545'), cursor: canTrade ? 'pointer' : 'not-allowed'}}>Confirm {modalMode}</button>
                         <button onClick={()=>{setSelectedStock(null); setTradeMsg('')}} style={{...btnBig, background:'#6c757d'}}>Cancel</button>
                     </div>
                 </div>
@@ -509,22 +493,48 @@ function App() {
     );
   }
 
-  // LOGIN SCREEN
+  // --- NEW SPLIT SCREEN LOGIN UI ---
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5', fontFamily: 'sans-serif' }}>
-        <div style={{ background: 'white', padding: '40px', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', width: '350px' }}>
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px', marginBottom:'5px' }}><span style={{ color: '#d32f2f' }}>C</span><span style={{ color: '#1565c0' }}>D</span><span style={{ color: '#2e7d32' }}>M</span></div>
-                <div style={{ fontSize: '14px', fontWeight: '800', color: '#2c3e50', textTransform:'uppercase', letterSpacing:'2px' }}>ProTrader</div>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e9ecef', fontFamily: 'sans-serif' }}>
+        <div style={{ display: 'flex', width: '900px', height: '600px', background: 'white', borderRadius: '20px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+            
+            {/* LEFT SIDE - REGISTER */}
+            <div style={{ flex: 1, background: '#2c3e50', padding: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center', color: 'white', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '30px', left: '30px', fontFamily: 'Georgia, serif', fontSize: '24px', fontWeight: 'bold' }}>
+                    <span style={{ color: '#e74c3c' }}>C</span><span style={{ color: '#3498db' }}>D</span><span style={{ color: '#2ecc71' }}>M</span>
+                </div>
+                
+                <h2 style={{ fontSize: '28px', marginBottom: '10px' }}>Create Profile</h2>
+                <p style={{ color: '#bdc3c7', marginBottom: '30px', lineHeight: '1.5' }}>Join the market simulation today. Build your portfolio and compete with real-time data.</p>
+                
+                <form onSubmit={(e) => handleAuth('REGISTER', e)}>
+                    <input style={darkInput} type="text" placeholder="Choose Username" value={regUsername} onChange={e=>setRegUsername(e.target.value)} />
+                    <input style={darkInput} type="email" placeholder="Email Address" value={regEmail} onChange={e=>setRegEmail(e.target.value)} />
+                    <input style={darkInput} type="password" placeholder="Create Password" value={regPassword} onChange={e=>setRegPassword(e.target.value)} />
+                    <div style={{fontSize:'11px', color:'#95a5a6', marginBottom:'15px'}}>Password must be 8+ chars, include Uppercase, Number & Special Char.</div>
+                    <button type="submit" style={btnRegister} disabled={loading}>{loading ? 'Creating...' : 'Sign Up Now'}</button>
+                </form>
+                {authError && <div style={{ marginTop: '15px', color: '#e74c3c', fontSize: '13px' }}>{authError}</div>}
+                {regSuccess && <div style={{ marginTop: '15px', color: '#2ecc71', fontSize: '13px', fontWeight: 'bold' }}>{regSuccess}</div>}
             </div>
-            {error && <div style={{padding:'10px', background:'#ffeeba', color:'#856404', borderRadius:'4px', marginBottom:'15px'}}>{error}</div>}
-            <form onSubmit={handleAuth}>
-                <input style={inputStyle} type="text" placeholder="Username" value={username} onChange={e=>setUsername(e.target.value)} />
-                {!isLogin && <input style={inputStyle} type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />}
-                <input style={inputStyle} type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
-                <button type="submit" style={btnBig} disabled={loading}>{loading ? '...' : (isLogin ? 'Log In' : 'Create Account')}</button>
-            </form>
-            <p style={{textAlign:'center', marginTop:'15px', fontSize:'14px', color:'#666', cursor:'pointer'}} onClick={()=>setIsLogin(!isLogin)}>{isLogin ? "Need an account? Sign Up" : "Have an account? Log In"}</p>
+
+            {/* RIGHT SIDE - LOGIN */}
+            <div style={{ flex: 1, padding: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+                <h2 style={{ color: '#2c3e50', marginBottom: '30px', fontSize: '24px' }}>Welcome Back</h2>
+                
+                <form onSubmit={(e) => handleAuth('LOGIN', e)} style={{ width: '100%' }}>
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Username</label>
+                        <input style={lightInput} type="text" value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} />
+                    </div>
+                    <div style={{ marginBottom: '25px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Password</label>
+                        <input style={lightInput} type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} />
+                    </div>
+                    <button type="submit" style={btnLogin} disabled={loading}>{loading ? 'Logging in...' : 'Log In'}</button>
+                </form>
+            </div>
+
         </div>
     </div>
   );
@@ -543,6 +553,11 @@ const thStyle = { textAlign: 'left', padding: '12px 15px', color: '#444', fontWe
 const tdStyle = { padding: '12px 15px', color: '#333' };
 const btnSmall = { padding: '6px 12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' };
 const btnBig = { width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: '600' };
-const inputStyle = { width: '100%', padding: '10px', marginBottom: '15px', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box' };
+
+// AUTH UI STYLES
+const darkInput = { width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' };
+const lightInput = { width: '100%', padding: '12px', background: '#f8f9fa', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box', fontSize: '14px' };
+const btnRegister = { width: '100%', padding: '12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' };
+const btnLogin = { width: '100%', padding: '12px', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 5px 15px rgba(44, 62, 80, 0.3)' };
 
 export default App;
