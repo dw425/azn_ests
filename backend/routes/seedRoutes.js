@@ -8,7 +8,7 @@ router.post('/seed', async (req, res) => {
     try {
         console.log("🌱 Seeding Database...");
 
-        // Create Tables
+        // Create Tables - Fully Expanded SQL for readability
         await db.query(`
             CREATE TABLE IF NOT EXISTS users (
                 user_id SERIAL PRIMARY KEY,
@@ -18,12 +18,14 @@ router.post('/seed', async (req, res) => {
                 is_admin BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
             CREATE TABLE IF NOT EXISTS wallets (
                 wallet_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                 balance DECIMAL(15, 2) DEFAULT 10000.00,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
             CREATE TABLE IF NOT EXISTS stocks (
                 stock_id SERIAL PRIMARY KEY,
                 ticker VARCHAR(10) UNIQUE NOT NULL,
@@ -34,13 +36,15 @@ router.post('/seed', async (req, res) => {
                 current_price DECIMAL(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
             CREATE TABLE IF NOT EXISTS stock_prices (
                 id SERIAL PRIMARY KEY,
                 stock_id INTEGER REFERENCES stocks(stock_id) ON DELETE CASCADE,
                 price DECIMAL(10, 2) NOT NULL,
                 recorded_at TIMESTAMP NOT NULL,
-                UNIQUE(stock_id, recorded_at) -- Ensure no duplicates
+                UNIQUE(stock_id, recorded_at)
             );
+
             CREATE TABLE IF NOT EXISTS holdings (
                 holding_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
@@ -49,6 +53,7 @@ router.post('/seed', async (req, res) => {
                 average_buy_price DECIMAL(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
             CREATE TABLE IF NOT EXISTS transactions (
                 transaction_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
@@ -59,13 +64,13 @@ router.post('/seed', async (req, res) => {
                 total_amount DECIMAL(15, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
             CREATE TABLE IF NOT EXISTS system_settings (
                 id SERIAL PRIMARY KEY,
                 market_status VARCHAR(20) DEFAULT 'OPEN',
                 simulated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             
-            -- Wallet History Table
             CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id SERIAL PRIMARY KEY,
                 wallet_id INTEGER REFERENCES wallets(wallet_id),
@@ -74,7 +79,9 @@ router.post('/seed', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
-            INSERT INTO system_settings (id, market_status) VALUES (1, 'OPEN') ON CONFLICT (id) DO NOTHING;
+            INSERT INTO system_settings (id, market_status) 
+            VALUES (1, 'OPEN') 
+            ON CONFLICT (id) DO NOTHING;
         `);
 
         // Reset Stocks
@@ -108,7 +115,7 @@ router.post('/seed', async (req, res) => {
     }
 });
 
-// 2. HISTORICAL PRICE GENERATOR (The Complex Logic)
+// 2. HISTORICAL PRICE GENERATOR
 router.post('/generate-prices', async (req, res) => {
     // Access the raw pool from Singleton
     const client = await db.pool.connect(); 
@@ -163,7 +170,6 @@ router.post('/generate-prices', async (req, res) => {
                 }
 
                 if (placeholders.length > 0) {
-                    // FIXED: Added ON CONFLICT DO NOTHING to prevent crashes on re-runs
                     const query = `
                         INSERT INTO stock_prices (stock_id, price, recorded_at) 
                         VALUES ${placeholders.join(',')}
