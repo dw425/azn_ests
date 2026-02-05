@@ -2,47 +2,40 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
-const { validateRegistration } = require('../utils/security'); // Import Validator
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-});
+const db = require('../db'); // <--- SINGLETON CONNECTION
+const { validateRegistration } = require('../utils/security');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
-// --- EXISTING AUTH ENDPOINTS ---
-
-// REGISTER (SECURED)
+// REGISTER
 router.post('/register', async (req, res) => {
-    const client = await pool.connect();
+    // Note: For transactions, we still grab a specific client from the pool
+    const client = await db.pool.connect(); 
     try {
-        // 1. Sanitize Inputs (Trim whitespace)
+        await client.query('BEGIN');
+
         const username = req.body.username ? req.body.username.trim() : '';
         const email = req.body.email ? req.body.email.toLowerCase().trim() : '';
         const password = req.body.password || '';
 
-        // 2. Validate Inputs
         const validationErrors = validateRegistration(username, email, password);
         if (validationErrors.length > 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ error: validationErrors.join(' ') });
         }
 
-        // 3. Check for Duplicates
         const checkRes = await client.query(
             'SELECT user_id FROM users WHERE username = $1 OR email = $2', 
             [username, email]
         );
         
         if (checkRes.rows.length > 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Username or Email already exists.' });
         }
 
-        // 4. Encrypt Password
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // 5. Create User
         const userRes = await client.query(
             `INSERT INTO users (username, email, password_hash, is_admin) 
              VALUES ($1, $2, $3, FALSE) RETURNING user_id, username, is_admin`,
@@ -50,15 +43,17 @@ router.post('/register', async (req, res) => {
         );
         const user = userRes.rows[0];
 
-        // 6. Create Initial Wallet
+        // Create Wallet
         await client.query(
             'INSERT INTO wallets (user_id, balance) VALUES ($1, 10000.00)',
             [user.user_id]
         );
 
+        await client.query('COMMIT');
         res.json({ message: 'User created successfully', user });
 
     } catch (err) {
+        await client.query('ROLLBACK');
         console.error("Registration Error:", err);
         res.status(500).json({ error: "Internal Server Error" });
     } finally {
@@ -69,10 +64,9 @@ router.post('/register', async (req, res) => {
 // LOGIN
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
-    const client = await pool.connect();
     
     try {
-        const result = await client.query('SELECT * FROM users WHERE username = $1', [username.trim()]);
+        const result = await db.query('SELECT * FROM users WHERE username = $1', [username.trim()]);
         const user = result.rows[0];
 
         if (!user) return res.status(400).json({ error: 'User not found' });
@@ -86,18 +80,13 @@ router.post('/login', async (req, res) => {
     } catch (err) {
         console.error("Login Error:", err);
         res.status(500).json({ error: "Server error" });
-    } finally {
-        client.release();
     }
 });
 
-// --- NEW USER MANAGEMENT ENDPOINTS (For Admin Dashboard) ---
-
-// GET All Users
+// GET USERS (Admin)
 router.get('/users', async (req, res) => {
     try {
-        // Fetch all users to display in the Admin Dashboard list
-        const result = await pool.query('SELECT user_id, username, email, is_admin, created_at FROM users ORDER BY user_id ASC');
+        const result = await db.query('SELECT user_id, username, email, is_admin, created_at FROM users ORDER BY user_id ASC');
         res.json(result.rows);
     } catch (err) {
         console.error("Get Users Error:", err);
@@ -105,21 +94,18 @@ router.get('/users', async (req, res) => {
     }
 });
 
-// UPDATE User Role (Toggle Admin)
+// TOGGLE ROLE (Admin)
 router.put('/users/:id/role', async (req, res) => {
     try {
         const { id } = req.params;
-        const { isAdmin } = req.body; // Boolean value sent from frontend
+        const { isAdmin } = req.body; 
         
-        const result = await pool.query(
+        const result = await db.query(
             'UPDATE users SET is_admin = $1 WHERE user_id = $2 RETURNING user_id, username, is_admin',
             [isAdmin, id]
         );
         
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
+        if (result.rows.length === 0) return res.status(404).json({ error: "User not found" });
         res.json(result.rows[0]);
     } catch (err) {
         console.error("Update Role Error:", err);
