@@ -12,6 +12,8 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
+// --- EXISTING AUTH ENDPOINTS ---
+
 // REGISTER (SECURED)
 router.post('/register', async (req, res) => {
     const client = await pool.connect();
@@ -86,6 +88,42 @@ router.post('/login', async (req, res) => {
         res.status(500).json({ error: "Server error" });
     } finally {
         client.release();
+    }
+});
+
+// --- NEW USER MANAGEMENT ENDPOINTS (For Admin Dashboard) ---
+
+// GET All Users
+router.get('/users', async (req, res) => {
+    try {
+        // Fetch all users to display in the Admin Dashboard list
+        const result = await pool.query('SELECT user_id, username, email, is_admin, created_at FROM users ORDER BY user_id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Get Users Error:", err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// UPDATE User Role (Toggle Admin)
+router.put('/users/:id/role', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isAdmin } = req.body; // Boolean value sent from frontend
+        
+        const result = await pool.query(
+            'UPDATE users SET is_admin = $1 WHERE user_id = $2 RETURNING user_id, username, is_admin',
+            [isAdmin, id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error("Update Role Error:", err);
+        res.status(500).send('Server Error');
     }
 });
 
