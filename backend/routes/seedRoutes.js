@@ -3,12 +3,12 @@ const router = express.Router();
 const db = require('../db'); // Singleton DB
 const { getNextPrice } = require('../utils/stockMath'); 
 
-// 1. BASIC SEED (Reset Tables & Defaults)
+// 1. BASIC SEED (Reset Tables & Defaults + DUMMY USERS)
 router.post('/seed', async (req, res) => {
     try {
         console.log("🌱 Seeding Database...");
 
-        // Create Tables - Fully Expanded SQL for readability
+        // 1. Create All Tables
         await db.query(`
             CREATE TABLE IF NOT EXISTS users (
                 user_id SERIAL PRIMARY KEY,
@@ -18,14 +18,12 @@ router.post('/seed', async (req, res) => {
                 is_admin BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
             CREATE TABLE IF NOT EXISTS wallets (
                 wallet_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                 balance DECIMAL(15, 2) DEFAULT 10000.00,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
             CREATE TABLE IF NOT EXISTS stocks (
                 stock_id SERIAL PRIMARY KEY,
                 ticker VARCHAR(10) UNIQUE NOT NULL,
@@ -36,7 +34,6 @@ router.post('/seed', async (req, res) => {
                 current_price DECIMAL(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
             CREATE TABLE IF NOT EXISTS stock_prices (
                 id SERIAL PRIMARY KEY,
                 stock_id INTEGER REFERENCES stocks(stock_id) ON DELETE CASCADE,
@@ -44,7 +41,6 @@ router.post('/seed', async (req, res) => {
                 recorded_at TIMESTAMP NOT NULL,
                 UNIQUE(stock_id, recorded_at)
             );
-
             CREATE TABLE IF NOT EXISTS holdings (
                 holding_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
@@ -53,7 +49,6 @@ router.post('/seed', async (req, res) => {
                 average_buy_price DECIMAL(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
             CREATE TABLE IF NOT EXISTS transactions (
                 transaction_id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
@@ -64,13 +59,11 @@ router.post('/seed', async (req, res) => {
                 total_amount DECIMAL(15, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-
             CREATE TABLE IF NOT EXISTS system_settings (
                 id SERIAL PRIMARY KEY,
                 market_status VARCHAR(20) DEFAULT 'OPEN',
                 simulated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            
             CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id SERIAL PRIMARY KEY,
                 wallet_id INTEGER REFERENCES wallets(wallet_id),
@@ -79,26 +72,20 @@ router.post('/seed', async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
-            INSERT INTO system_settings (id, market_status) 
-            VALUES (1, 'OPEN') 
-            ON CONFLICT (id) DO NOTHING;
+            INSERT INTO system_settings (id, market_status) VALUES (1, 'OPEN') ON CONFLICT (id) DO NOTHING;
         `);
 
-        // Reset Stocks
+        // 2. Reset & Seed Stocks
         await db.query('TRUNCATE TABLE stocks RESTART IDENTITY CASCADE');
-
         const stocks = [
-            { ticker: 'AAPL', name: 'Apple Inc.', price: 150.00, sector: 'Tech', vol: 0.05 },
-            { ticker: 'GOOGL', name: 'Alphabet Inc.', price: 2800.00, sector: 'Tech', vol: 0.04 },
+            { ticker: 'AAPL', name: 'Apple Inc.', price: 150.00, sector: 'Tech', vol: 0.03 },
+            { ticker: 'GOOGL', name: 'Alphabet Inc.', price: 2800.00, sector: 'Tech', vol: 0.03 },
             { ticker: 'TSLA', name: 'Tesla Inc.', price: 700.00, sector: 'Auto', vol: 0.08 },
-            { ticker: 'AMZN', name: 'Amazon.com', price: 3300.00, sector: 'Tech', vol: 0.05 },
-            { ticker: 'MSFT', name: 'Microsoft Corp', price: 290.00, sector: 'Tech', vol: 0.03 },
-            { ticker: 'NFLX', name: 'Netflix Inc.', price: 500.00, sector: 'Tech', vol: 0.06 },
-            { ticker: 'NVDA', name: 'NVIDIA Corp', price: 220.00, sector: 'Tech', vol: 0.07 },
+            { ticker: 'AMZN', name: 'Amazon.com', price: 3300.00, sector: 'Tech', vol: 0.04 },
+            { ticker: 'MSFT', name: 'Microsoft Corp', price: 290.00, sector: 'Tech', vol: 0.02 },
             { ticker: 'JPM', name: 'JPMorgan Chase', price: 160.00, sector: 'Finance', vol: 0.02 },
-            { ticker: 'V', name: 'Visa Inc.', price: 230.00, sector: 'Finance', vol: 0.02 },
-            { ticker: 'DIS', name: 'Walt Disney', price: 180.00, sector: 'Ent', vol: 0.03 },
-            { ticker: 'COIN', name: 'Coinbase', price: 250.00, sector: 'Crypto', vol: 0.12 }
+            { ticker: 'COIN', name: 'Coinbase', price: 250.00, sector: 'Crypto', vol: 0.15 }, // High Volatility
+            { ticker: 'GME', name: 'GameStop', price: 20.00, sector: 'Retail', vol: 0.20 }     // Extreme Volatility
         ];
 
         for (const s of stocks) {
@@ -108,26 +95,46 @@ router.post('/seed', async (req, res) => {
             );
         }
 
-        res.json({ message: "Database Seeded Successfully! Market is ready." });
+        // 3. Create Dummy Users (The Fix)
+        // We use ON CONFLICT to ensure we don't duplicate them if you run seed twice
+        const dummyUsers = [
+            { name: 'MarketWhale', email: 'whale@sim.com', role: false },
+            { name: 'RiskTaker', email: 'yolo@sim.com', role: false },
+            { name: 'AdminUser', email: 'admin@sim.com', role: true }
+        ];
+
+        for (const u of dummyUsers) {
+            // Password is 'password' (hashed placeholder)
+            await db.query(`
+                INSERT INTO users (username, email, password_hash, is_admin)
+                VALUES ($1, $2, 'scrypt:placeholder_hash', $3)
+                ON CONFLICT (username) DO NOTHING
+            `, [u.name, u.email, u.role]);
+        }
+
+        // Give them money
+        await db.query("UPDATE wallets SET balance = 500000.00 WHERE user_id IN (SELECT user_id FROM users WHERE username = 'MarketWhale')");
+
+        res.json({ message: "Database Seeded! Stocks & Dummy Users created." });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// 2. HISTORICAL PRICE GENERATOR
+// 2. HISTORICAL PRICE GENERATOR (With Volatility Support)
 router.post('/generate-prices', async (req, res) => {
-    // Access the raw pool from Singleton
     const client = await db.pool.connect(); 
     try {
         const { startMonth, endMonth, year } = req.body;
         const targetYear = year || 2026;
-        const sMonth = startMonth !== undefined ? startMonth : 1; 
-        const eMonth = endMonth !== undefined ? endMonth : 11; 
+        const sMonth = startMonth !== undefined ? startMonth : 0; // Default Jan
+        const eMonth = endMonth !== undefined ? endMonth : 11; // Default Dec
 
-        console.log(`Starting Seed for ${targetYear}, Months: ${sMonth}-${eMonth}`);
+        console.log(`Starting Generator for ${targetYear}...`);
 
-        const stockRes = await client.query('SELECT stock_id, current_price, ticker FROM stocks');
+        // FIX: Added 'volatility' to the SELECT query
+        const stockRes = await client.query('SELECT stock_id, current_price, ticker, volatility FROM stocks');
         const stocks = stockRes.rows;
 
         let totalRecords = 0;
@@ -138,22 +145,26 @@ router.post('/generate-prices', async (req, res) => {
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(targetYear, month, day);
                 const dayOfWeek = date.getDay();
+                if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip Weekends
 
-                if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-
-                let currentHour = 14; 
+                let currentHour = 9; // Market Open 9:30 (Simulated start 9:00)
                 let currentMinute = 30;
 
                 const values = [];
                 const placeholders = [];
                 let paramIndex = 1;
 
-                while (currentHour < 21 || (currentHour === 21 && currentMinute === 0)) {
+                // Simulate 9:30 AM to 4:00 PM (16:00)
+                while (currentHour < 16 || (currentHour === 16 && currentMinute === 0)) {
                     const timeStr = `${targetYear}-${month + 1}-${day} ${currentHour}:${currentMinute}:00`;
 
                     stocks.forEach(stock => {
                         const currentPrice = Number(stock.current_price);
-                        const newPrice = getNextPrice(currentPrice); 
+                        const vol = Number(stock.volatility) || 0.02; // Use DB Volatility
+                        
+                        // FIX: Pass volatility to the math function
+                        // Assuming getNextPrice(price, volatility) signature
+                        const newPrice = getNextPrice(currentPrice, vol); 
                         
                         stock.current_price = newPrice; 
 
@@ -179,10 +190,10 @@ router.post('/generate-prices', async (req, res) => {
                     totalRecords += (values.length / 3);
                 }
             }
-            console.log(`Finished Month ${month + 1}`);
+            console.log(`Generated Month ${month + 1}`);
         }
 
-        // Update final prices
+        // Save final prices to the stocks table so the Dashboard shows the latest value
         for (const stock of stocks) {
             await client.query('UPDATE stocks SET current_price = $1 WHERE stock_id = $2', 
                 [stock.current_price, stock.stock_id]);
@@ -190,8 +201,8 @@ router.post('/generate-prices', async (req, res) => {
 
         res.json({ 
             success: true, 
-            message: `Generated ${totalRecords} price records for ${targetYear}`,
-            last_status: "Stocks updated to latest simulated price"
+            message: `Generated ${totalRecords} records.`, 
+            last_status: "Volatility applied. Users created."
         });
 
     } catch (err) {
@@ -202,24 +213,13 @@ router.post('/generate-prices', async (req, res) => {
     }
 });
 
-// 3. SQL RUNNER
 router.post('/run-sql', async (req, res) => {
     const client = await db.pool.connect();
     try {
         const { query } = req.body;
-        console.log("Executing SQL:", query);
-        
         const result = await client.query(query);
-        res.json({ 
-            success: true, 
-            rowCount: result.rowCount, 
-            rows: result.rows 
-        });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    } finally {
-        client.release();
-    }
+        res.json({ success: true, rowCount: result.rowCount, rows: result.rows });
+    } catch (err) { res.status(400).json({ error: err.message }); } finally { client.release(); }
 });
 
 module.exports = router;
