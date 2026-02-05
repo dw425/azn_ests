@@ -1,12 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // Singleton
+// FIX: Uses ../db because this file is inside backend/routes/
+const db = require('../db'); 
 
-// --- SYSTEM SETTINGS ---
+// ==========================================
+// 1. SYSTEM SETTINGS (Market Status & Time)
+// ==========================================
+
+// GET current system settings
 router.get('/settings', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM system_settings WHERE id = 1');
     if (result.rows.length === 0) {
+      // Default fallback if DB is empty
       return res.json({ market_status: 'OPEN', simulated_date: new Date() });
     }
     res.json(result.rows[0]);
@@ -16,15 +22,22 @@ router.get('/settings', async (req, res) => {
   }
 });
 
+// UPDATE system settings (Open/Close Market, Change Date)
 router.post('/settings', async (req, res) => {
   try {
     const { market_status, simulated_date } = req.body;
+    
+    // Use COALESCE to keep existing value if the new one is undefined
+    // This allows us to update JUST status or JUST date
     const updateQuery = `
       UPDATE system_settings 
-      SET market_status = $1, simulated_date = $2 
+      SET 
+        market_status = COALESCE($1, market_status),
+        simulated_date = COALESCE($2, simulated_date)
       WHERE id = 1 
       RETURNING *
     `;
+    
     const result = await db.query(updateQuery, [market_status, simulated_date]);
     res.json(result.rows[0]);
   } catch (err) {
@@ -33,12 +46,13 @@ router.post('/settings', async (req, res) => {
   }
 });
 
-// --- STOCK MANAGEMENT ---
+// ==========================================
+// 2. STOCK MANAGEMENT (CRUD)
+// ==========================================
 
-// GET All Stocks
+// GET All Stocks (Ordered by Ticker)
 router.get('/stocks', async (req, res) => {
     try {
-        // FIXED: Order by ticker, not symbol
         const result = await db.query('SELECT * FROM stocks ORDER BY ticker ASC');
         res.json(result.rows);
     } catch (err) {
@@ -50,7 +64,7 @@ router.get('/stocks', async (req, res) => {
 // ADD New Stock
 router.post('/stocks', async (req, res) => {
     try {
-        // Frontend sends 'symbol', we map it to 'ticker' for DB
+        // Map frontend 'symbol' to database 'ticker'
         const { symbol, name, base_price, volatility, sector } = req.body;
         
         const query = `
@@ -67,13 +81,12 @@ router.post('/stocks', async (req, res) => {
     }
 });
 
-// UPDATE Stock
+// UPDATE Stock (Volatility, Price, Sector)
 router.put('/stocks/:ticker', async (req, res) => {
     try {
         const { ticker } = req.params;
         const { volatility, base_price, sector } = req.body;
         
-        // FIXED: Where ticker = $4
         const query = `
             UPDATE stocks 
             SET volatility = $1, base_price = $2, sector = $3
@@ -98,7 +111,6 @@ router.put('/stocks/:ticker', async (req, res) => {
 router.delete('/stocks/:ticker', async (req, res) => {
     try {
         const { ticker } = req.params;
-        // FIXED: Where ticker = $1
         await db.query('DELETE FROM stocks WHERE ticker = $1', [ticker]);
         res.json({ message: "Stock deleted" });
     } catch (err) {
@@ -107,13 +119,22 @@ router.delete('/stocks/:ticker', async (req, res) => {
     }
 });
 
-// --- SQL TOOL ---
-router.post('/sql', async (req, res) => {
+// ==========================================
+// 3. SQL TOOL (Direct Database Access)
+// ==========================================
+router.post('/run-sql', async (req, res) => {
     try {
         const { query } = req.body;
-        if (!query) return res.status(400).json({ error: "Query is required" });
+        // Security Warning: In production, restrict this to Super Admins only
+        console.log("Executing SQL:", query);
+        
         const result = await db.query(query);
-        res.json({ command: result.command, rowCount: result.rowCount, rows: result.rows });
+        res.json({ 
+            success: true, 
+            command: result.command, 
+            rowCount: result.rowCount, 
+            rows: result.rows 
+        });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
