@@ -7,6 +7,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// --- SYSTEM SETTINGS ---
+
 // 1. GET Settings
 router.get('/settings', async (req, res) => {
   try {
@@ -37,6 +39,77 @@ router.post('/settings', async (req, res) => {
     console.error(err.message);
     res.status(500).send('Server Error');
   }
+});
+
+// --- STOCK MANAGEMENT ---
+
+// 3. GET All Stocks (Admin View)
+router.get('/stocks', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM stocks ORDER BY symbol ASC');
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server Error');
+    }
+});
+
+// 4. ADD New Stock
+router.post('/stocks', async (req, res) => {
+    try {
+        const { symbol, name, base_price, volatility, sector } = req.body;
+        
+        // Default current_price to base_price on creation
+        const query = `
+            INSERT INTO stocks (symbol, name, base_price, current_price, volatility, sector)
+            VALUES ($1, $2, $3, $3, $4, $5)
+            RETURNING *
+        `;
+        
+        const result = await pool.query(query, [symbol.toUpperCase(), name, base_price, volatility, sector]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5. UPDATE Stock
+router.put('/stocks/:symbol', async (req, res) => {
+    try {
+        const { symbol } = req.params;
+        const { volatility, base_price, sector } = req.body;
+        
+        const query = `
+            UPDATE stocks 
+            SET volatility = $1, base_price = $2, sector = $3
+            WHERE symbol = $4
+            RETURNING *
+        `;
+        
+        const result = await pool.query(query, [volatility, base_price, sector, symbol]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Stock not found" });
+        }
+        
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 6. DELETE Stock
+router.delete('/stocks/:symbol', async (req, res) => {
+    try {
+        const { symbol } = req.params;
+        await pool.query('DELETE FROM stocks WHERE symbol = $1', [symbol]);
+        res.json({ message: "Stock deleted" });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 module.exports = router;
