@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // <--- SINGLETON
-const { getNextPrice } = require('../utils/stockMath'); // Ensure this file exists
+const db = require('../db'); // Singleton DB
+const { getNextPrice } = require('../utils/stockMath'); 
 
 // 1. BASIC SEED (Reset Tables & Defaults)
 router.post('/seed', async (req, res) => {
@@ -38,7 +38,8 @@ router.post('/seed', async (req, res) => {
                 id SERIAL PRIMARY KEY,
                 stock_id INTEGER REFERENCES stocks(stock_id) ON DELETE CASCADE,
                 price DECIMAL(10, 2) NOT NULL,
-                recorded_at TIMESTAMP NOT NULL
+                recorded_at TIMESTAMP NOT NULL,
+                UNIQUE(stock_id, recorded_at) -- Ensure no duplicates
             );
             CREATE TABLE IF NOT EXISTS holdings (
                 holding_id SERIAL PRIMARY KEY,
@@ -63,6 +64,16 @@ router.post('/seed', async (req, res) => {
                 market_status VARCHAR(20) DEFAULT 'OPEN',
                 simulated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            
+            -- Wallet History Table
+            CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id SERIAL PRIMARY KEY,
+                wallet_id INTEGER REFERENCES wallets(wallet_id),
+                transaction_type VARCHAR(50),
+                amount DECIMAL(15, 2),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             INSERT INTO system_settings (id, market_status) VALUES (1, 'OPEN') ON CONFLICT (id) DO NOTHING;
         `);
 
@@ -79,7 +90,8 @@ router.post('/seed', async (req, res) => {
             { ticker: 'NVDA', name: 'NVIDIA Corp', price: 220.00, sector: 'Tech', vol: 0.07 },
             { ticker: 'JPM', name: 'JPMorgan Chase', price: 160.00, sector: 'Finance', vol: 0.02 },
             { ticker: 'V', name: 'Visa Inc.', price: 230.00, sector: 'Finance', vol: 0.02 },
-            { ticker: 'DIS', name: 'Walt Disney', price: 180.00, sector: 'Ent', vol: 0.03 }
+            { ticker: 'DIS', name: 'Walt Disney', price: 180.00, sector: 'Ent', vol: 0.03 },
+            { ticker: 'COIN', name: 'Coinbase', price: 250.00, sector: 'Crypto', vol: 0.12 }
         ];
 
         for (const s of stocks) {
@@ -96,7 +108,7 @@ router.post('/seed', async (req, res) => {
     }
 });
 
-// 2. HISTORICAL PRICE GENERATOR (Restored)
+// 2. HISTORICAL PRICE GENERATOR (The Complex Logic)
 router.post('/generate-prices', async (req, res) => {
     // Access the raw pool from Singleton
     const client = await db.pool.connect(); 
@@ -104,7 +116,7 @@ router.post('/generate-prices', async (req, res) => {
         const { startMonth, endMonth, year } = req.body;
         const targetYear = year || 2026;
         const sMonth = startMonth !== undefined ? startMonth : 1; 
-        const eMonth = endMonth !== undefined ? endMonth : 11;
+        const eMonth = endMonth !== undefined ? endMonth : 11; 
 
         console.log(`Starting Seed for ${targetYear}, Months: ${sMonth}-${eMonth}`);
 
@@ -134,7 +146,7 @@ router.post('/generate-prices', async (req, res) => {
 
                     stocks.forEach(stock => {
                         const currentPrice = Number(stock.current_price);
-                        const newPrice = getNextPrice(currentPrice); // Utility function
+                        const newPrice = getNextPrice(currentPrice); 
                         
                         stock.current_price = newPrice; 
 
@@ -143,7 +155,7 @@ router.post('/generate-prices', async (req, res) => {
                         paramIndex += 3;
                     });
 
-                    currentMinute += 30; // 30 min intervals to save space
+                    currentMinute += 30; 
                     if (currentMinute >= 60) {
                         currentMinute -= 60;
                         currentHour++;
@@ -151,9 +163,11 @@ router.post('/generate-prices', async (req, res) => {
                 }
 
                 if (placeholders.length > 0) {
+                    // FIXED: Added ON CONFLICT DO NOTHING to prevent crashes on re-runs
                     const query = `
                         INSERT INTO stock_prices (stock_id, price, recorded_at) 
                         VALUES ${placeholders.join(',')}
+                        ON CONFLICT DO NOTHING
                     `;
                     await client.query(query, values);
                     totalRecords += (values.length / 3);
@@ -177,6 +191,26 @@ router.post('/generate-prices', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. SQL RUNNER
+router.post('/run-sql', async (req, res) => {
+    const client = await db.pool.connect();
+    try {
+        const { query } = req.body;
+        console.log("Executing SQL:", query);
+        
+        const result = await client.query(query);
+        res.json({ 
+            success: true, 
+            rowCount: result.rowCount, 
+            rows: result.rows 
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
     } finally {
         client.release();
     }
