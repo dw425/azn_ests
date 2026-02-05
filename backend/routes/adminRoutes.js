@@ -112,4 +112,27 @@ router.delete('/stocks/:symbol', async (req, res) => {
     }
 });
 
+// --- UTILITY TOOLS ---
+
+// 7. SQL EXECUTION TOOL (For Admin SQL Tab)
+router.post('/sql', async (req, res) => {
+    try {
+        const { query } = req.body;
+        if (!query) return res.status(400).json({ error: "Query is required" });
+
+        console.log("Executing Admin SQL:", query);
+        const result = await pool.query(query);
+        
+        // Return rows for SELECT, rowCount for INSERT/UPDATE
+        res.json({ 
+            command: result.command,
+            rowCount: result.rowCount,
+            rows: result.rows 
+        });
+    } catch (err) {
+        console.error("SQL Error:", err.message);
+        res.status(400).json({ error: err.message });
+    }
+});
+
 module.exports = router;
