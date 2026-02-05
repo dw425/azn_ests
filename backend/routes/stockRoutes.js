@@ -11,10 +11,6 @@ const pool = new Pool({
 router.get('/', async (req, res) => {
     const client = await pool.connect();
     try {
-        // SQL MAGIC:
-        // 1. EXTRACT(ISODOW) returns 6 for Saturday, 7 for Sunday.
-        // 2. We use a CASE statement to force 'today_pct' to 0 on weekends.
-        
         const query = `
             WITH latest_prices AS (
                 SELECT DISTINCT ON (stock_id) stock_id, price as close_price, recorded_at
@@ -32,7 +28,8 @@ router.get('/', async (req, res) => {
                 s.stock_id, 
                 s.ticker, 
                 s.company_name, 
-                s.sector, 
+                s.sector,
+                s.volatility,  -- <--- NEW: Now exposed to Frontend
                 s.current_price,
                 
                 -- WEEKEND LOCK: If Sat(6) or Sun(7), force 0. Else calculate real change.
