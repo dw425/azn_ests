@@ -15,17 +15,17 @@
         .error { color: #ff6b6b; }
         .success { color: #51cf66; }
         .presets { margin-bottom: 15px; display: flex; gap: 10px; }
-        .preset-btn { background: #444; font-size: 12px; padding: 5px 10px; }
+        .preset-btn { background: #444; font-size: 12px; padding: 5px 10px; cursor: pointer; border: 1px solid #555; color: white; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 SQL Command Center</h1>
+        <h1>🚀 SQL Command Center (Fixed)</h1>
         
         <div class="presets">
-            <button class="preset-btn" onclick="setQuery('SELECT * FROM users ORDER BY created_at DESC LIMIT 5')">Show Recent Users</button>
-            <button class="preset-btn" onclick="setQuery('SELECT * FROM stocks ORDER BY ticker')">Show Stocks</button>
-            <button class="preset-btn" onclick="setQuery(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)">Show Full Schema</button>
+            <button class="preset-btn" onclick="setQuery('SELECT * FROM users')">List All Users</button>
+            <button class="preset-btn" onclick="setQuery('SELECT * FROM wallets')">List All Wallets</button>
+            <button class="preset-btn" onclick="setQuery(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)">Show Tables</button>
         </div>
 
         <textarea id="queryInput" placeholder="Enter SQL query here..."></textarea>
@@ -34,7 +34,8 @@
     </div>
 
     <script>
-        // HARDCODED API URL TO FIX CONNECTION
+        // --- THE CRITICAL FIX ---
+        // We point explicitly to the BACKEND API, not the Frontend URL.
         const API_URL = 'https://stock-trading-api-fcp5.onrender.com/api/admin/run-sql';
 
         function setQuery(q) {
@@ -58,8 +59,10 @@
                 });
 
                 const contentType = res.headers.get("content-type");
+                
+                // Safety Check: Did we get HTML back? (The "Token <" Error)
                 if (contentType && contentType.indexOf("application/json") === -1) {
-                    throw new Error("Server returned HTML instead of JSON. Check API URL.");
+                    throw new Error("Server Error: Received HTML instead of JSON. The backend URL might be wrong or the server is crashing.");
                 }
 
                 const data = await res.json();
@@ -69,11 +72,11 @@
                     output.innerText = JSON.stringify(data, null, 2);
                 } else {
                     output.className = 'error';
-                    output.innerText = `Error: ${data.error}`;
+                    output.innerText = `SQL Error: ${data.error}`;
                 }
             } catch (err) {
                 output.className = 'error';
-                output.innerText = `Network Error: ${err.message}`;
+                output.innerText = `Connection Failed: ${err.message}`;
             }
         }
     </script>
