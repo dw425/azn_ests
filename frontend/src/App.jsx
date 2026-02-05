@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import AdminDashboard from './AdminDashboard.jsx'; 
 
@@ -74,12 +74,11 @@ function App() {
       const timer = setInterval(() => {
           setPendingTx(prev => prev.map(tx => {
               if (tx.timeLeft <= 1) {
-                  // Time is up! Execution is handled by the setTimeout callback, 
-                  // but we remove it from UI here to be safe visually.
+                  // Time is up! 
                   return null; 
               }
               return { ...tx, timeLeft: tx.timeLeft - 1 };
-          }).filter(Boolean)); // Remove nulls (finished items)
+          }).filter(Boolean)); // Remove finished items from UI
       }, 1000);
 
       return () => clearInterval(timer);
@@ -130,21 +129,20 @@ function App() {
 
   // --- TRADING LOGIC (QUEUED) ---
 
-  // 1. User clicks Confirm in Modal -> Checks High Value -> Calls queueTrade
+  // 1. User clicks Confirm in Modal
   const initiateTradeCheck = () => {
       const tradeValue = selectedStock.current_price * quantity;
       if (tradeValue >= 10000 && !showHighValueWarning) {
-          setShowHighValueWarning(true); // Show warning first
+          setShowHighValueWarning(true); 
       } else {
-          queueTrade(); // Proceed to pending queue
+          queueTrade(); 
       }
   };
 
-  // 2. Adds to Pending Queue
+  // 2. Adds to Pending Queue (60 Seconds)
   const queueTrade = () => {
       setShowHighValueWarning(false);
       
-      // Capture current values strictly
       const txDetails = {
           id: Date.now() + Math.random(),
           userId: user.id || user.user_id,
@@ -153,13 +151,13 @@ function App() {
           mode: modalMode,
           price: selectedStock.current_price,
           total: selectedStock.current_price * quantity,
-          timeLeft: 5 // Seconds to cancel
+          timeLeft: 60 // FIXED: Changed to 60 Seconds
       };
 
       // Create the execution timer
       const timeoutId = setTimeout(() => {
           executeTrade(txDetails);
-      }, 5000); // 5 seconds match
+      }, 60000); // FIXED: 60000ms = 60s
 
       // Add to state
       setPendingTx(prev => [...prev, { ...txDetails, timeoutId }]);
@@ -170,7 +168,7 @@ function App() {
       setTradeMsg('');
   };
 
-  // 3. Actual Server Execution (Called by Timeout)
+  // 3. Actual Server Execution
   const executeTrade = async (tx) => {
     try {
       const endpoint = tx.mode === 'BUY' ? '/api/orders/buy' : '/api/orders/sell';
@@ -184,9 +182,9 @@ function App() {
         })
       });
       
-      // We don't need to show success msg since modal is gone, 
-      // just refresh data to show the new position.
       if(res.ok) {
+          // FIXED: Wait 500ms for DB to commit, then reload Dashboard to update Cash/Qty
+          await new Promise(r => setTimeout(r, 500));
           if(view === 'dashboard') loadDashboard(tx.userId);
           if(view === 'history') loadHistory(tx.userId);
       } else {
@@ -353,7 +351,7 @@ function App() {
                     </table>
                 </div>
 
-                {/* --- PENDING TRANSACTIONS (NEW SECTION) --- */}
+                {/* --- PENDING TRANSACTIONS (60 Sec) --- */}
                 {pendingTx.length > 0 && (
                     <div style={{ background: '#fff', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', overflow: 'hidden', marginBottom:'30px', borderTop:'4px solid #ffc107' }}>
                         <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee', background:'#fffbf2', display:'flex', alignItems:'center', gap:'10px' }}>
@@ -382,7 +380,7 @@ function App() {
                                         <td style={tdStyle}>{tx.quantity}</td>
                                         <td style={tdStyle}>{formatMoney(tx.price)}</td>
                                         <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(tx.total)}</td>
-                                        <td style={{...tdStyle, color: tx.timeLeft < 3 ? '#d32f2f' : '#666', fontWeight:'bold'}}>
+                                        <td style={{...tdStyle, color: tx.timeLeft < 10 ? '#d32f2f' : '#666', fontWeight:'bold'}}>
                                             {tx.timeLeft}s
                                         </td>
                                         <td style={tdStyle}>
