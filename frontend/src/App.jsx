@@ -7,22 +7,23 @@ const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard');
+  
+  // NAVIGATION STATE
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'history', 'admin'
   
   // DATA STATES
   const [portfolio, setPortfolio] = useState({ cash: 0, stockValue: 0, totalValue: 0, dayChange: 0, dayChangePct: 0, recentActivity: null }); 
   const [holdings, setHoldings] = useState([]);     
   const [market, setMarket] = useState([]);         
-  const [chartData, setChartData] = useState([]);   
+  const [chartData, setChartData] = useState([]);
+  const [history, setHistory] = useState([]); // NEW: History Data
 
-  // AUTH STATES (SPLIT)
+  // AUTH STATES
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-
   const [authError, setAuthError] = useState('');
   const [regSuccess, setRegSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,8 +37,6 @@ function App() {
   const [quantity, setQuantity] = useState(1);
   const [tradeMsg, setTradeMsg] = useState('');
   const [walletMsg, setWalletMsg] = useState('');
-  
-  // SAFETY
   const [showHighValueWarning, setShowHighValueWarning] = useState(false);
 
   // --- INITIAL LOAD ---
@@ -56,6 +55,14 @@ function App() {
       }
     }
   }, [token]);
+
+  // Load Data based on active view
+  useEffect(() => {
+      if(token && user) {
+          if(view === 'dashboard') loadDashboard(user.id || user.user_id);
+          if(view === 'history') loadHistory(user.id || user.user_id);
+      }
+  }, [view, token, user]);
 
   const loadDashboard = async (userId) => {
     setDataLoading(true);
@@ -84,6 +91,19 @@ function App() {
     }
   };
 
+  const loadHistory = async (userId) => {
+      setDataLoading(true);
+      try {
+          const res = await fetch(`${API_BASE}/api/orders/history/${userId}`);
+          const data = await res.json();
+          setHistory(Array.isArray(data) ? data : []);
+      } catch (err) {
+          console.error("History Load Error:", err);
+      } finally {
+          setDataLoading(false);
+      }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -100,13 +120,7 @@ function App() {
       }
   };
 
-  const handleLoginAs = (targetUser) => {
-    setUser(targetUser); 
-    loadDashboard(targetUser.user_id);
-    setView('dashboard'); 
-  };
-
-  // --- SPLIT AUTH HANDLER ---
+  // --- AUTH & TRADING HANDLERS (SAME AS BEFORE) ---
   const handleAuth = async (type, e) => {
     e.preventDefault();
     setLoading(true);
@@ -133,6 +147,7 @@ function App() {
         localStorage.setItem('user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
+        setView('dashboard');
         loadDashboard(data.user.id);
       } else {
         setRegSuccess('✅ Account created! Please log in on the right.');
@@ -147,7 +162,6 @@ function App() {
     }
   };
 
-  // --- SAFETY INTERCEPTOR ---
   const initiateTrade = () => {
       const tradeValue = selectedStock.current_price * quantity;
       if (tradeValue >= 10000) {
@@ -183,7 +197,8 @@ function App() {
             setSelectedStock(null);
             setTradeMsg('');
             setQuantity(1);
-            loadDashboard(user.id || user.user_id); 
+            if(view === 'dashboard') loadDashboard(user.id || user.user_id);
+            if(view === 'history') loadHistory(user.id || user.user_id);
         }, 1500);
       } else {
         setTradeMsg(`❌ Error: ${data.error}`);
@@ -244,7 +259,12 @@ function App() {
       }
   };
 
+  // FORMATTERS
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
+  const formatDate = (dateStr) => {
+      if(!dateStr) return '-';
+      return new Date(dateStr).toLocaleString();
+  }
   
   const ChangeIndicator = ({ val, isPercent }) => {
      if(!val || val === 0) return <span style={{color:'#999', fontSize:'12px'}}>-</span >;
@@ -256,7 +276,7 @@ function App() {
   const LoadingSpinner = () => (
       <div style={{ marginLeft: '40px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="spinner"></div> 
-          <span style={{ fontSize: '13px', color: '#666', fontWeight: 'bold' }}>UPDATING LIVE DATA...</span>
+          <span style={{ fontSize: '13px', color: '#666', fontWeight: 'bold' }}>LOADING DATA...</span>
           <style>{`
             .spinner { width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -265,10 +285,10 @@ function App() {
   );
 
   if (token && view === 'admin') {
-      return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={handleLoginAs} />;
+      return <AdminDashboard onBack={() => setView('dashboard')} onLoginAs={(u)=>{ setUser(u); setView('dashboard'); loadDashboard(u.user_id); }} />;
   }
 
-  // LOGGED IN DASHBOARD
+  // --- LOGGED IN LAYOUT ---
   if (token) {
     const isAdmin = user?.is_admin;
     const tradeValue = selectedStock ? selectedStock.current_price * quantity : 0;
@@ -276,29 +296,31 @@ function App() {
     
     let canTrade = true;
     let errorReason = "";
-    
     const ownedStock = holdings.find(h => h.stock_id === selectedStock?.stock_id);
     const ownedQty = ownedStock ? Number(ownedStock.quantity) : 0;
 
     if (modalMode === 'BUY') {
-        if (tradeValue > portfolio.cash) {
-            canTrade = false;
-            errorReason = `Insufficient Cash (Need ${formatMoney(tradeValue)})`;
-        }
+        if (tradeValue > portfolio.cash) { canTrade = false; errorReason = `Insufficient Cash (Need ${formatMoney(tradeValue)})`; }
     } else {
-        if (quantity > ownedQty) {
-            canTrade = false;
-            errorReason = `Insufficient Shares (You own: ${ownedQty})`;
-        }
+        if (quantity > ownedQty) { canTrade = false; errorReason = `Insufficient Shares (You own: ${ownedQty})`; }
     }
 
     return (
       <div style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f4f6f9', minHeight: '100vh', paddingBottom: '50px' }}>
+        
+        {/* HEADER */}
         <div style={{ background: '#fff', padding: '15px 40px', borderBottom: '1px solid #e1e4e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ fontFamily: 'Georgia, serif', fontSize: '32px', fontWeight: '900', letterSpacing: '1px' }}><span style={{ color: '#d32f2f' }}>C</span><span style={{ color: '#1565c0' }}>D</span><span style={{ color: '#2e7d32' }}>M</span></div>
             <div style={{ display:'flex', flexDirection:'column', justifyContent:'center' }}><span style={{ fontSize: '20px', fontWeight: '800', color: '#2c3e50', lineHeight:'1', letterSpacing:'-0.5px' }}>ProTrader</span><span style={{ fontSize: '11px', fontWeight: '400', color: '#95a5a6', textTransform:'uppercase', letterSpacing:'2px' }}>Dashboard</span></div>
           </div>
+          
+          {/* NAV TABS */}
+          <div style={{display:'flex', gap:'20px'}}>
+              <div onClick={() => setView('dashboard')} style={{cursor:'pointer', padding:'10px', borderBottom: view === 'dashboard' ? '3px solid #007bff' : 'none', fontWeight: view === 'dashboard' ? 'bold' : 'normal', color: view === 'dashboard' ? '#007bff' : '#666'}}>Dashboard</div>
+              <div onClick={() => setView('history')} style={{cursor:'pointer', padding:'10px', borderBottom: view === 'history' ? '3px solid #007bff' : 'none', fontWeight: view === 'history' ? 'bold' : 'normal', color: view === 'history' ? '#007bff' : '#666'}}>History</div>
+          </div>
+
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
             <button onClick={() => setShowWallet(true)} style={{ padding: '8px 16px', fontSize: '13px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>💰 Wallet</button>
             <button onClick={handleAdminClick} style={{ padding: '8px 16px', fontSize: '13px', background: isAdmin ? '#343a40' : '#e9ecef', color: isAdmin ? '#fff' : '#adb5bd', border: 'none', borderRadius: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>{isAdmin ? '🔒 Admin' : '🔒 Restricted'}</button>
@@ -310,110 +332,150 @@ function App() {
 
         {dataLoading && <LoadingSpinner />}
 
+        {/* --- VIEW SWITCHER --- */}
         <div style={{ maxWidth: '1400px', margin: '30px auto', padding: '0 20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-            <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
-            <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
-            <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Day's Change</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}><ChangeIndicator val={portfolio.dayChange} /></div>
-                <div style={{ fontSize: '13px', marginTop: '2px' }}><ChangeIndicator val={portfolio.dayChangePct} isPercent /></div>
-            </div>
-            <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #007bff' }}>
-                <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Activity</div>
-                <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '5px' }}>{portfolio.recentActivity ? `${portfolio.recentActivity.quantity} ${portfolio.recentActivity.ticker}` : 'No trades yet'}</div>
-                <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>{portfolio.recentActivity ? `@ ${formatMoney(portfolio.recentActivity.price_executed)}` : 'Start trading now'}</div>
-            </div>
-          </div>
+          
+          {view === 'dashboard' ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+                    <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
+                    <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
+                    <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                        <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Day's Change</div>
+                        <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}><ChangeIndicator val={portfolio.dayChange} /></div>
+                        <div style={{ fontSize: '13px', marginTop: '2px' }}><ChangeIndicator val={portfolio.dayChangePct} isPercent /></div>
+                    </div>
+                    <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #007bff' }}>
+                        <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Activity</div>
+                        <div style={{ fontSize: '16px', fontWeight: 'bold', marginTop: '5px' }}>{portfolio.recentActivity ? `${portfolio.recentActivity.quantity} ${portfolio.recentActivity.ticker}` : 'No trades yet'}</div>
+                        <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>{portfolio.recentActivity ? `@ ${formatMoney(portfolio.recentActivity.price_executed)}` : 'Start trading now'}</div>
+                    </div>
+                </div>
 
-          <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
-            <div style={{ height: '300px', width: '100%' }}>
-                <ResponsiveContainer>
-                    <AreaChart data={chartData}>
-                        <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#007bff" stopOpacity={0.1}/><stop offset="95%" stopColor="#007bff" stopOpacity={0}/></linearGradient></defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                        <XAxis dataKey="day" hide />
-                        <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
-                        <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => `Day ${label}`} />
-                        <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
-                    </AreaChart>
-                </ResponsiveContainer>
-            </div>
-          </div>
+                <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
+                    <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
+                    <div style={{ height: '300px', width: '100%' }}>
+                        <ResponsiveContainer>
+                            <AreaChart data={chartData}>
+                                <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#007bff" stopOpacity={0.1}/><stop offset="95%" stopColor="#007bff" stopOpacity={0}/></linearGradient></defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                                <XAxis dataKey="day" hide />
+                                <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
+                                <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => `Day ${label}`} />
+                                <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
 
-          <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-            <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Positions</h3></div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
-                    <tr>
-                        <th style={thStyle}>Symbol</th><th style={thStyle}>Last Price</th><th style={thStyle}>Day Change</th><th style={thStyle}>Total Gain/Loss</th><th style={thStyle}>Current Value</th><th style={thStyle}>Quantity</th><th style={thStyle}>Avg Cost</th><th style={thStyle}>Total Cost</th><th style={thStyle}>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {holdings.length === 0 ? (<tr><td colSpan="9" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held. Check the Market below!</td></tr>) : (holdings.map(stock => (
-                        <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
-                            <td style={tdStyle}>{formatMoney(stock.current_price)}</td>
-                            <td style={tdStyle}><ChangeIndicator val={stock.day_change} isPercent /></td>
-                            <td style={tdStyle}><ChangeIndicator val={stock.total_gain} /><br/><span style={{fontSize:'11px'}}><ChangeIndicator val={stock.total_gain_pct} isPercent /></span></td>
-                            <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.market_value)}</td>
-                            <td style={tdStyle}>{stock.quantity}</td>
-                            <td style={tdStyle}>{formatMoney(stock.avg_cost)}</td>
-                            <td style={tdStyle}>{formatMoney(stock.total_cost)}</td> 
-                            <td style={tdStyle}>
-                                <div style={{display:'flex', gap:'5px'}}>
-                                    <button onClick={() => openBuyModal(stock)} style={{...btnSmall, background: '#28a745'}}>Buy</button>
-                                    <button onClick={() => openSellModal(stock)} style={{...btnSmall, background: '#dc3545'}}>Sell</button>
-                                </div>
-                            </td>
-                        </tr>
-                    )))}
-                </tbody>
-            </table>
-          </div>
+                <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Positions</h3></div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                        <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
+                            <tr>
+                                <th style={thStyle}>Symbol</th><th style={thStyle}>Last Price</th><th style={thStyle}>Day Change</th><th style={thStyle}>Total Gain/Loss</th><th style={thStyle}>Current Value</th><th style={thStyle}>Quantity</th><th style={thStyle}>Avg Cost</th><th style={thStyle}>Total Cost</th><th style={thStyle}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {holdings.length === 0 ? (<tr><td colSpan="9" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held. Check the Market below!</td></tr>) : (holdings.map(stock => (
+                                <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
+                                    <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
+                                    <td style={tdStyle}>{formatMoney(stock.current_price)}</td>
+                                    <td style={tdStyle}><ChangeIndicator val={stock.day_change} isPercent /></td>
+                                    <td style={tdStyle}><ChangeIndicator val={stock.total_gain} /><br/><span style={{fontSize:'11px'}}><ChangeIndicator val={stock.total_gain_pct} isPercent /></span></td>
+                                    <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.market_value)}</td>
+                                    <td style={tdStyle}>{stock.quantity}</td>
+                                    <td style={tdStyle}>{formatMoney(stock.avg_cost)}</td>
+                                    <td style={tdStyle}>{formatMoney(stock.total_cost)}</td> 
+                                    <td style={tdStyle}><div style={{display:'flex', gap:'5px'}}><button onClick={() => openBuyModal(stock)} style={{...btnSmall, background: '#28a745'}}>Buy</button><button onClick={() => openSellModal(stock)} style={{...btnSmall, background: '#dc3545'}}>Sell</button></div></td>
+                                </tr>
+                            )))}
+                        </tbody>
+                    </table>
+                </div>
 
-          <br /> <br />
+                <br/><br/>
 
-          <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-            <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Market Data</h3></div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
-                    <tr>
-                        <th style={thStyle}>Symbol</th><th style={{...thStyle, width: '200px'}}>Company</th><th style={thStyle}>Sector</th><th style={thStyle}>Price</th><th style={thStyle}>Today %</th><th style={thStyle}>30 Day %</th><th style={thStyle}>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {market.length === 0 ? (<tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center' }}>Loading Market Data...</td></tr>) : (market.map(stock => (
-                        <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
-                            <td style={{...tdStyle, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{stock.company_name}</td>
-                            <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
-                            <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
-                            <td style={tdStyle}><ChangeIndicator val={stock.today_pct} isPercent /></td>
-                            <td style={tdStyle}><ChangeIndicator val={stock.rolling_pct} isPercent /></td>
-                            <td style={tdStyle}><button onClick={() => openBuyModal(stock)} style={btnSmall}>Buy</button></td>
-                        </tr>
-                    )))}
-                </tbody>
-            </table>
-          </div>
+                <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                    <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>Market Data</h3></div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                        <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
+                            <tr>
+                                <th style={thStyle}>Symbol</th><th style={{...thStyle, width: '200px'}}>Company</th><th style={thStyle}>Sector</th><th style={thStyle}>Price</th><th style={thStyle}>Today %</th><th style={thStyle}>30 Day %</th><th style={thStyle}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {market.length === 0 ? (<tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center' }}>Loading Market Data...</td></tr>) : (market.map(stock => (
+                                <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
+                                    <td style={{...tdStyle, fontWeight: 'bold', color: '#007bff'}}>{stock.ticker}</td>
+                                    <td style={{...tdStyle, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{stock.company_name}</td>
+                                    <td style={tdStyle}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
+                                    <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(stock.current_price)}</td>
+                                    <td style={tdStyle}><ChangeIndicator val={stock.today_pct} isPercent /></td>
+                                    <td style={tdStyle}><ChangeIndicator val={stock.rolling_pct} isPercent /></td>
+                                    <td style={tdStyle}><button onClick={() => openBuyModal(stock)} style={btnSmall}>Buy</button></td>
+                                </tr>
+                            )))}
+                        </tbody>
+                    </table>
+                </div>
+              </>
+          ) : (
+              // --- HISTORY VIEW ---
+              <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden', minHeight:'500px' }}>
+                  <div style={{ padding: '20px 25px', borderBottom: '1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <h3 style={{ margin: 0 }}>Transaction History</h3>
+                      <button onClick={()=>loadHistory(user.id || user.user_id)} style={{background:'none', border:'1px solid #ddd', borderRadius:'4px', padding:'5px 10px', cursor:'pointer', fontSize:'12px'}}>Refresh</button>
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                      <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
+                          <tr>
+                              <th style={thStyle}>Date/Time</th>
+                              <th style={thStyle}>Type</th>
+                              <th style={thStyle}>Symbol</th>
+                              <th style={thStyle}>Quantity</th>
+                              <th style={thStyle}>Price Executed</th>
+                              <th style={thStyle}>Total Amount</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          {history.length === 0 ? (
+                              <tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No transactions found. Make a trade!</td></tr>
+                          ) : (
+                              history.map((tx) => (
+                                  <tr key={tx.order_id} style={{ borderBottom: '1px solid #eee' }}>
+                                      <td style={tdStyle}>{formatDate(tx.created_at)}</td>
+                                      <td style={tdStyle}>
+                                          <span style={{
+                                              padding:'4px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:'bold',
+                                              background: tx.order_type === 'BUY' ? '#d4edda' : '#f8d7da',
+                                              color: tx.order_type === 'BUY' ? '#155724' : '#721c24'
+                                          }}>
+                                              {tx.order_type}
+                                          </span>
+                                      </td>
+                                      <td style={{...tdStyle, fontWeight:'bold', color:'#007bff'}}>{tx.ticker}</td>
+                                      <td style={tdStyle}>{tx.quantity}</td>
+                                      <td style={tdStyle}>{formatMoney(tx.price_executed)}</td>
+                                      <td style={{...tdStyle, fontWeight:'bold'}}>{formatMoney(tx.total_amount)}</td>
+                                  </tr>
+                              ))
+                          )}
+                      </tbody>
+                  </table>
+              </div>
+          )}
+
         </div>
 
-        {/* WARNING MODAL */}
+        {/* MODALS RETAINED (High Value, Trade, Wallet) */}
         {showHighValueWarning && (
              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '350px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', borderTop: '6px solid #ffc107', textAlign: 'center' }}>
                     <div style={{fontSize:'40px', marginBottom:'10px'}}>⚠️</div>
                     <h2 style={{margin:'0 0 10px 0', color:'#333'}}>High Value Trade</h2>
-                    <p style={{color:'#666', fontSize:'14px', lineHeight:'1.5'}}>
-                        You are about to place a trade valued over <strong>$10,000.00</strong>.
-                        <br/>
-                        Please confirm you wish to proceed.
-                    </p>
-                    <div style={{background:'#f8f9fa', padding:'10px', borderRadius:'6px', marginBottom:'20px', fontWeight:'bold', fontSize:'18px'}}>
-                        {formatMoney(tradeValue)}
-                    </div>
+                    <p style={{color:'#666', fontSize:'14px', lineHeight:'1.5'}}>You are about to place a trade valued over <strong>$10,000.00</strong>.<br/>Please confirm you wish to proceed.</p>
+                    <div style={{background:'#f8f9fa', padding:'10px', borderRadius:'6px', marginBottom:'20px', fontWeight:'bold', fontSize:'18px'}}>{formatMoney(selectedStock ? selectedStock.current_price * quantity : 0)}</div>
                     <div style={{display:'flex', gap:'10px', justifyContent:'center'}}>
                         <button onClick={executeTrade} style={{...btnBig, background:'#ffc107', color:'#000'}}>Yes, Confirm</button>
                         <button onClick={() => setShowHighValueWarning(false)} style={{...btnBig, background:'#6c757d', color:'white'}}>Cancel</button>
@@ -422,39 +484,25 @@ function App() {
              </div>
         )}
 
-        {/* TRADING MODAL */}
         {selectedStock && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
-                    <h2 style={{marginTop:0, color: modalMode === 'BUY' ? '#28a745' : '#dc3545'}}>
-                        {modalMode === 'BUY' ? 'Buy' : 'Sell'} {selectedStock.ticker}
-                    </h2>
+                    <h2 style={{marginTop:0, color: modalMode === 'BUY' ? '#28a745' : '#dc3545'}}>{modalMode === 'BUY' ? 'Buy' : 'Sell'} {selectedStock.ticker}</h2>
                     <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
                          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Current Price:</span><strong>{formatMoney(selectedStock.current_price)}</strong></div>
                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px'}}>
                              <span>Quantity:</span>
                              <div style={{display:'flex', gap:'5px'}}>
                                 <input type="number" min="1" value={quantity} onChange={e=>setQuantity(e.target.value)} style={{width:'80px', padding:'5px'}} />
-                                {modalMode === 'SELL' && (
-                                    <button onClick={setMaxSell} style={{fontSize:'10px', padding:'2px 5px', background:'#dc3545', color:'white', border:'none', borderRadius:'3px', cursor:'pointer'}}>MAX</button>
-                                )}
+                                {modalMode === 'SELL' && (<button onClick={setMaxSell} style={{fontSize:'10px', padding:'2px 5px', background:'#dc3545', color:'white', border:'none', borderRadius:'3px', cursor:'pointer'}}>MAX</button>)}
                              </div>
                          </div>
-                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}>
-                             <span>Total Value:</span>
-                             <span style={{color: canTrade ? '#333' : '#dc3545', fontWeight:'bold'}}>{formatMoney(tradeValue)}</span>
-                         </div>
+                         <div style={{borderTop:'1px solid #ddd', marginTop:'15px', paddingTop:'15px', display:'flex', justifyContent:'space-between', fontWeight:'bold'}}><span>Total Value:</span><span style={{color: canTrade ? '#333' : '#dc3545', fontWeight:'bold'}}>{formatMoney(tradeValue)}</span></div>
                          {!canTrade && <div style={{fontSize:'12px', color:'#dc3545', marginTop:'5px', textAlign:'right'}}>{errorReason}</div>}
-                         
                          {modalMode === 'BUY' && (
                              <div style={{marginTop:'15px'}}>
-                                 <div style={{display:'flex', justifyContent:'space-between', fontSize:'11px', color:'#666', marginBottom:'2px'}}>
-                                     <span>Buying Power Used</span>
-                                     <span>{buyingPowerUsed > 100 ? 100 : buyingPowerUsed.toFixed(1)}%</span>
-                                 </div>
-                                 <div style={{width:'100%', height:'6px', background:'#e9ecef', borderRadius:'3px', overflow:'hidden'}}>
-                                     <div style={{width: `${Math.min(buyingPowerUsed, 100)}%`, height:'100%', background: canTrade ? '#28a745' : '#dc3545', transition: 'width 0.3s ease'}}></div>
-                                 </div>
+                                 <div style={{display:'flex', justifyContent:'space-between', fontSize:'11px', color:'#666', marginBottom:'2px'}}><span>Buying Power Used</span><span>{buyingPowerUsed > 100 ? 100 : buyingPowerUsed.toFixed(1)}%</span></div>
+                                 <div style={{width:'100%', height:'6px', background:'#e9ecef', borderRadius:'3px', overflow:'hidden'}}><div style={{width: `${Math.min(buyingPowerUsed, 100)}%`, height:'100%', background: canTrade ? '#28a745' : '#dc3545', transition: 'width 0.3s ease'}}></div></div>
                              </div>
                          )}
                     </div>
@@ -467,7 +515,6 @@ function App() {
             </div>
         )}
 
-        {/* WALLET MODAL */}
         {showWallet && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
                 <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
@@ -488,25 +535,18 @@ function App() {
                 </div>
             </div>
         )}
-
       </div>
     );
   }
 
-  // --- NEW SPLIT SCREEN LOGIN UI ---
+  // --- SPLIT AUTH SCREEN (RETAINED) ---
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e9ecef', fontFamily: 'sans-serif' }}>
         <div style={{ display: 'flex', width: '900px', height: '600px', background: 'white', borderRadius: '20px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
-            
-            {/* LEFT SIDE - REGISTER */}
             <div style={{ flex: 1, background: '#2c3e50', padding: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center', color: 'white', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: '30px', left: '30px', fontFamily: 'Georgia, serif', fontSize: '24px', fontWeight: 'bold' }}>
-                    <span style={{ color: '#e74c3c' }}>C</span><span style={{ color: '#3498db' }}>D</span><span style={{ color: '#2ecc71' }}>M</span>
-                </div>
-                
+                <div style={{ position: 'absolute', top: '30px', left: '30px', fontFamily: 'Georgia, serif', fontSize: '24px', fontWeight: 'bold' }}><span style={{ color: '#e74c3c' }}>C</span><span style={{ color: '#3498db' }}>D</span><span style={{ color: '#2ecc71' }}>M</span></div>
                 <h2 style={{ fontSize: '28px', marginBottom: '10px' }}>Create Profile</h2>
                 <p style={{ color: '#bdc3c7', marginBottom: '30px', lineHeight: '1.5' }}>Join the market simulation today. Build your portfolio and compete with real-time data.</p>
-                
                 <form onSubmit={(e) => handleAuth('REGISTER', e)}>
                     <input style={darkInput} type="text" placeholder="Choose Username" value={regUsername} onChange={e=>setRegUsername(e.target.value)} />
                     <input style={darkInput} type="email" placeholder="Email Address" value={regEmail} onChange={e=>setRegEmail(e.target.value)} />
@@ -517,24 +557,14 @@ function App() {
                 {authError && <div style={{ marginTop: '15px', color: '#e74c3c', fontSize: '13px' }}>{authError}</div>}
                 {regSuccess && <div style={{ marginTop: '15px', color: '#2ecc71', fontSize: '13px', fontWeight: 'bold' }}>{regSuccess}</div>}
             </div>
-
-            {/* RIGHT SIDE - LOGIN */}
             <div style={{ flex: 1, padding: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
                 <h2 style={{ color: '#2c3e50', marginBottom: '30px', fontSize: '24px' }}>Welcome Back</h2>
-                
                 <form onSubmit={(e) => handleAuth('LOGIN', e)} style={{ width: '100%' }}>
-                    <div style={{ marginBottom: '15px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Username</label>
-                        <input style={lightInput} type="text" value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} />
-                    </div>
-                    <div style={{ marginBottom: '25px' }}>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Password</label>
-                        <input style={lightInput} type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} />
-                    </div>
+                    <div style={{ marginBottom: '15px' }}><label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Username</label><input style={lightInput} type="text" value={loginUsername} onChange={e=>setLoginUsername(e.target.value)} /></div>
+                    <div style={{ marginBottom: '25px' }}><label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#7f8c8d', marginBottom: '5px', textTransform: 'uppercase' }}>Password</label><input style={lightInput} type="password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} /></div>
                     <button type="submit" style={btnLogin} disabled={loading}>{loading ? 'Logging in...' : 'Log In'}</button>
                 </form>
             </div>
-
         </div>
     </div>
   );
@@ -548,13 +578,10 @@ const MetricCard = ({ title, value, sub, color, highlight }) => (
         <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>{sub}</div>
     </div>
 );
-
 const thStyle = { textAlign: 'left', padding: '12px 15px', color: '#444', fontWeight: '600', fontSize: '13px' };
 const tdStyle = { padding: '12px 15px', color: '#333' };
 const btnSmall = { padding: '6px 12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' };
 const btnBig = { width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: '600' };
-
-// AUTH UI STYLES
 const darkInput = { width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' };
 const lightInput = { width: '100%', padding: '12px', background: '#f8f9fa', border: '1px solid #ddd', borderRadius: '4px', boxSizing: 'border-box', fontSize: '14px' };
 const btnRegister = { width: '100%', padding: '12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' };
