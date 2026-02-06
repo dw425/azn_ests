@@ -71,7 +71,7 @@ router.post('/add', async (req, res) => {
         await client.query('UPDATE wallets SET balance = $1 WHERE user_id = $2', [newBalance, userId]);
 
         // Record Transaction
-        const type = isWithdrawal ? 'WITHDRAW' : 'DEPOSIT';
+        const type = isWithdrawal ? 'WITHDRAWAL' : 'DEPOSIT';
         await client.query(`
             INSERT INTO wallet_transactions (wallet_id, transaction_type, amount, created_at)
             VALUES ($1, $2, $3, NOW())
