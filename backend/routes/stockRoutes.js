@@ -26,6 +26,11 @@ router.get('/', async (req, res) => {
                 s.sector,
                 s.volatility,
                 s.current_price,
+                s.volume,
+                s.daily_open,
+                s.day_high,
+                s.day_low,
+                (s.volume * s.current_price) as market_cap,
                 
                 CASE 
                     WHEN EXTRACT(ISODOW FROM NOW()) IN (6, 7) THEN 0
