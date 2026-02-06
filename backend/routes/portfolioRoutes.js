@@ -139,4 +139,49 @@ router.get('/chart/:userId', async (req, res) => {
     }
 });
 
+// 4. GET LAST ACTIVITY (Most recent action across trades + wallet)
+router.get('/last-activity/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const query = `
+            (
+                SELECT 
+                    'TRADE' as category,
+                    t.order_type as action_type,
+                    s.ticker as label,
+                    t.total_amount as amount,
+                    t.quantity,
+                    t.created_at
+                FROM transactions t
+                JOIN stocks s ON t.stock_id = s.stock_id
+                WHERE t.user_id = $1
+                ORDER BY t.created_at DESC
+                LIMIT 1
+            )
+            UNION ALL
+            (
+                SELECT 
+                    'WALLET' as category,
+                    wt.transaction_type as action_type,
+                    wt.transaction_type as label,
+                    wt.amount,
+                    NULL as quantity,
+                    wt.created_at
+                FROM wallet_transactions wt
+                JOIN wallets w ON wt.wallet_id = w.wallet_id
+                WHERE w.user_id = $1
+                ORDER BY wt.created_at DESC
+                LIMIT 1
+            )
+            ORDER BY created_at DESC
+            LIMIT 1
+        `;
+        const result = await db.query(query, [userId]);
+        res.json(result.rows.length > 0 ? result.rows[0] : null);
+    } catch (err) {
+        console.error("Last Activity Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
