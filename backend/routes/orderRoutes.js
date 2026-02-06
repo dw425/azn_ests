@@ -21,8 +21,8 @@ router.post('/buy', async (req, res) => {
         const walletRes = await client.query('SELECT * FROM wallets WHERE user_id = $1', [userId]);
         const wallet = walletRes.rows[0];
 
-        // 2. Get Stock Price
-        const stockRes = await client.query('SELECT current_price FROM stocks WHERE stock_id = $1', [stockId]);
+        // 2. Get Stock Price + Volume
+        const stockRes = await client.query('SELECT current_price, volume, ticker FROM stocks WHERE stock_id = $1', [stockId]);
         const stock = stockRes.rows[0];
 
         if (!wallet || !stock) throw new Error('Invalid user or stock');
@@ -31,6 +31,18 @@ router.post('/buy', async (req, res) => {
 
         if (Number(wallet.balance) < totalCost) {
             throw new Error('Insufficient funds');
+        }
+
+        // Volume Check: total shares owned by ALL users for this stock can't exceed volume
+        if (stock.volume && Number(stock.volume) > 0) {
+            const totalHeldRes = await client.query(
+                'SELECT COALESCE(SUM(quantity), 0) as total_held FROM holdings WHERE stock_id = $1',
+                [stockId]
+            );
+            const totalHeld = Number(totalHeldRes.rows[0].total_held);
+            if (totalHeld + Number(quantity) > Number(stock.volume)) {
+                throw new Error(`Exceeds available volume — only ${(Number(stock.volume) - totalHeld).toLocaleString()} shares of ${stock.ticker} remaining`);
+            }
         }
 
         // 3. Deduct Balance
@@ -142,13 +154,23 @@ router.get('/test-buy', async (req, res) => {
         const balance = Number(walletRes.rows[0].balance);
 
         // 3. Stock Check
-        const stockRes = await db.query('SELECT current_price, ticker FROM stocks WHERE stock_id = $1', [stockId]);
+        const stockRes = await db.query('SELECT current_price, ticker, volume FROM stocks WHERE stock_id = $1', [stockId]);
         if (stockRes.rows.length === 0) return res.json({ step: 'STOCK', error: 'Stock not found' });
         const price = Number(stockRes.rows[0].current_price);
         const cost = price * Number(quantity);
+        const stockVolume = Number(stockRes.rows[0].volume) || 0;
 
         // 4. Funds Check
         if (balance < cost) return res.json({ step: 'FUNDS', error: `Need ${cost} but only have ${balance}` });
+
+        // 5. Volume Check
+        if (stockVolume > 0) {
+            const totalHeldRes = await db.query('SELECT COALESCE(SUM(quantity), 0) as total_held FROM holdings WHERE stock_id = $1', [stockId]);
+            const totalHeld = Number(totalHeldRes.rows[0].total_held);
+            if (totalHeld + Number(quantity) > stockVolume) {
+                return res.json({ step: 'VOLUME', error: `Exceeds volume — only ${stockVolume - totalHeld} shares remaining of ${stockVolume} total` });
+            }
+        }
 
         res.json({ 
             step: 'ALL_PASSED', 
@@ -156,6 +178,7 @@ router.get('/test-buy', async (req, res) => {
             ticker: stockRes.rows[0].ticker,
             price, quantity: Number(quantity), cost, balance,
             remaining: balance - cost,
+            volume: stockVolume,
             marketCheck
         });
     } catch (err) {
