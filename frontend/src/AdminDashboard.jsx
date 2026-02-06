@@ -125,17 +125,17 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- HISTORY GENERATOR ---
     const handleGenerateHistory = async () => {
-        if(!window.confirm("WARNING: This will wipe all users and generate new history. Continue?")) return;
-        setMsg('⏳ Generating History... Please wait...');
+        if(!window.confirm("This will regenerate 1 year of end-of-day close prices for ALL stocks in the market. Existing price history will be replaced. Continue?")) return;
+        setStockMsg('⏳ Generating 1-year price history for all stocks... Please wait...');
         try {
             const res = await fetch(`${API_BASE}/api/admin/generate-prices`, { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ year: 2026 }) 
+                body: JSON.stringify({ days: 365 }) 
             });
             const data = await res.json();
-            if (res.ok) setMsg(`✅ Success: ${data.message}`); else setMsg(`❌ Error: ${data.error}`);
-        } catch (err) { setMsg(`❌ Network Error: ${err.message}`); }
+            if (res.ok) setStockMsg(`✅ ${data.message}`); else setStockMsg(`❌ Error: ${data.error}`);
+        } catch (err) { setStockMsg(`❌ Network Error: ${err.message}`); }
     };
 
     // --- SQL TOOL ---
@@ -208,7 +208,6 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 </div>
                 <div style={{display:'flex', gap:'10px', flexDirection:'column', alignItems:'flex-end'}}>
                     <button onClick={onBack} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>← Back to Dashboard</button>
-                    <button onClick={handleGenerateHistory} style={{ padding: '8px 16px', background:'#6f42c1', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize:'13px', boxShadow:'0 2px 5px rgba(0,0,0,0.2)' }}>⚡ Generate History</button>
                 </div>
             </div>
 
@@ -238,6 +237,16 @@ function AdminDashboard({ onBack, onLoginAs }) {
                             <div style={{ marginBottom: '15px' }}><label>Volume (Total Shares)</label><input type="number" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newVolume} onChange={e => setNewVolume(e.target.value)} placeholder="e.g. 1000000" required /></div>
                             <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Add Stock</button>
                         </form>
+                        
+                        {/* Generate History Section */}
+                        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e1e4e8' }}>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#333' }}>📊 Price History</h4>
+                            <p style={{ fontSize: '12px', color: '#666', marginBottom: '12px', lineHeight: '1.4' }}>
+                                Generate 1 year of end-of-day close prices for <strong>all {stocks.length} stocks</strong> in the market. Run this after adding new stocks.
+                            </p>
+                            <button onClick={handleGenerateHistory} style={{ padding: '10px 20px', background: '#6f42c1', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%', fontSize: '13px' }}>⚡ Generate 1-Year History (All Stocks)</button>
+                            {stockMsg && <div style={{ marginTop: '10px', padding: '8px 12px', background: stockMsg.includes('✅') ? '#d4edda' : stockMsg.includes('⏳') ? '#fff3cd' : '#f8d7da', color: stockMsg.includes('✅') ? '#155724' : stockMsg.includes('⏳') ? '#856404' : '#721c24', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>{stockMsg}</div>}
+                        </div>
                     </div>
                     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                         <h3>Current Market ({stocks.length})</h3>
