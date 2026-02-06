@@ -17,6 +17,7 @@ router.post('/register', async (req, res) => {
         const username = req.body.username ? req.body.username.trim() : '';
         const email = req.body.email ? req.body.email.toLowerCase().trim() : '';
         const password = req.body.password || '';
+        const full_name = req.body.full_name ? req.body.full_name.trim() : '';
 
         const validationErrors = validateRegistration(username, email, password);
         if (validationErrors.length > 0) {
@@ -37,9 +38,9 @@ router.post('/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         
         const userRes = await client.query(
-            `INSERT INTO users (username, email, password_hash, is_admin) 
-             VALUES ($1, $2, $3, FALSE) RETURNING user_id, username, is_admin`,
-            [username, email, hashedPassword]
+            `INSERT INTO users (username, email, password_hash, is_admin, full_name) 
+             VALUES ($1, $2, $3, FALSE, $4) RETURNING user_id, username, is_admin, full_name`,
+            [username, email, hashedPassword, full_name]
         );
         const user = userRes.rows[0];
 
@@ -76,7 +77,7 @@ router.post('/login', async (req, res) => {
 
         const token = jwt.sign({ id: user.user_id, username: user.username, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '1h' });
 
-        res.json({ token, user: { id: user.user_id, username: user.username, is_admin: user.is_admin } });
+        res.json({ token, user: { id: user.user_id, username: user.username, is_admin: user.is_admin, full_name: user.full_name || '' } });
     } catch (err) {
         console.error("Login Error:", err);
         res.status(500).json({ error: "Server error" });
@@ -86,7 +87,7 @@ router.post('/login', async (req, res) => {
 // GET USERS (Admin)
 router.get('/users', async (req, res) => {
     try {
-        const result = await db.query('SELECT user_id, username, email, is_admin, created_at FROM users ORDER BY user_id ASC');
+        const result = await db.query('SELECT user_id, username, email, is_admin, full_name, created_at FROM users ORDER BY user_id ASC');
         res.json(result.rows);
     } catch (err) {
         console.error("Get Users Error:", err);
