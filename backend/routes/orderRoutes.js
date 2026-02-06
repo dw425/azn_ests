@@ -44,7 +44,7 @@ router.post('/buy', async (req, res) => {
 
         if (holdingRes.rows.length > 0) {
             await client.query(
-                'UPDATE holdings SET quantity = quantity + $1, average_buy_price = (($2 * $3) + (average_buy_price * quantity)) / (quantity + $1) WHERE user_id = $4 AND stock_id = $5',
+                'UPDATE holdings SET quantity = quantity + $1, average_buy_price = (($2::numeric * $3::numeric) + (average_buy_price * quantity)) / (quantity + $1) WHERE user_id = $4 AND stock_id = $5',
                 [quantity, stock.current_price, quantity, userId, stockId]
             );
         } else {
