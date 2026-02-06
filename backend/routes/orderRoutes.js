@@ -124,6 +124,45 @@ router.post('/sell', async (req, res) => {
     }
 });
 
+// DIAGNOSTIC: Test buy check (GET request you can hit from browser)
+// Usage: /api/orders/test-buy?userId=2&stockId=8&quantity=1
+router.get('/test-buy', async (req, res) => {
+    try {
+        const { userId, stockId, quantity } = req.query;
+        
+        // 1. Market Check
+        const marketCheck = await getMarketStatus();
+        if (!marketCheck.allowed) {
+            return res.json({ step: 'MARKET_CHECK', error: marketCheck.reason, marketCheck });
+        }
+
+        // 2. Wallet Check
+        const walletRes = await db.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
+        if (walletRes.rows.length === 0) return res.json({ step: 'WALLET', error: 'Wallet not found' });
+        const balance = Number(walletRes.rows[0].balance);
+
+        // 3. Stock Check
+        const stockRes = await db.query('SELECT current_price, ticker FROM stocks WHERE stock_id = $1', [stockId]);
+        if (stockRes.rows.length === 0) return res.json({ step: 'STOCK', error: 'Stock not found' });
+        const price = Number(stockRes.rows[0].current_price);
+        const cost = price * Number(quantity);
+
+        // 4. Funds Check
+        if (balance < cost) return res.json({ step: 'FUNDS', error: `Need ${cost} but only have ${balance}` });
+
+        res.json({ 
+            step: 'ALL_PASSED', 
+            message: 'Buy would succeed',
+            ticker: stockRes.rows[0].ticker,
+            price, quantity: Number(quantity), cost, balance,
+            remaining: balance - cost,
+            marketCheck
+        });
+    } catch (err) {
+        res.json({ step: 'ERROR', error: err.message });
+    }
+});
+
 // HISTORY
 router.get('/history/:userId', async (req, res) => {
     try {
