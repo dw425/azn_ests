@@ -7,13 +7,18 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const [activeTab, setActiveTab] = useState('stocks'); 
     const [users, setUsers] = useState([]);
     const [stocks, setStocks] = useState([]);
-    const [settings, setSettings] = useState({ market_status: 'OPEN', simulated_date: new Date().toISOString() });
+    const [settings, setSettings] = useState({ market_status: 'OPEN', simulated_date: new Date().toISOString(), market_open_time: '09:30', market_close_time: '16:00', force_override: false, holidays: '[]' });
+    const [marketCheckResult, setMarketCheckResult] = useState(null);
     
     // UI State
     const [msg, setMsg] = useState('');
     const [stockMsg, setStockMsg] = useState('');
     const [sqlOutput, setSqlOutput] = useState(null); 
     const [customDate, setCustomDate] = useState(''); // For Calendar Input
+
+    // Holiday Form
+    const [newHolidayDate, setNewHolidayDate] = useState('');
+    const [newHolidayName, setNewHolidayName] = useState('');
 
     // Forms
     const [newUser, setNewUser] = useState('');
@@ -27,6 +32,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
     // --- INITIAL DATA LOAD ---
     useEffect(() => {
         fetchSettings(); // Always get system status
+        fetchMarketCheck();
         if (activeTab === 'users') fetchUsers();
         if (activeTab === 'stocks') fetchStocks();
     }, [activeTab]);
@@ -41,6 +47,9 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const fetchSettings = async () => {
         try { const res = await fetch(`${API_BASE}/api/admin/settings`); setSettings(await res.json()); } catch (err) { console.error(err); }
     };
+    const fetchMarketCheck = async () => {
+        try { const res = await fetch(`${API_BASE}/api/admin/market-check`); setMarketCheckResult(await res.json()); } catch (err) { console.error(err); }
+    };
 
     // --- SYSTEM CONTROLS (TIME & MARKET) ---
     const updateSettings = async (updates) => {
@@ -53,6 +62,8 @@ function AdminDashboard({ onBack, onLoginAs }) {
             const data = await res.json();
             setSettings(data);
             setMsg('✅ System Settings Updated');
+            // Re-check market status after any settings change
+            fetchMarketCheck();
         } catch (err) { setMsg('❌ Error updating settings'); }
     };
 
@@ -66,6 +77,31 @@ function AdminDashboard({ onBack, onLoginAs }) {
         const currentDate = new Date(settings.simulated_date || Date.now());
         currentDate.setHours(currentDate.getHours() + hours);
         updateSettings({ simulated_date: currentDate.toISOString() });
+    };
+
+    // --- HOLIDAY MANAGEMENT ---
+    const getHolidays = () => {
+        try { return JSON.parse(settings.holidays || '[]'); } catch(e) { return []; }
+    };
+
+    const addHoliday = () => {
+        if (!newHolidayDate) return;
+        const holidays = getHolidays();
+        // Prevent duplicates
+        if (holidays.find(h => h.date === newHolidayDate)) {
+            setMsg('❌ Holiday already exists for that date');
+            return;
+        }
+        holidays.push({ date: newHolidayDate, name: newHolidayName || 'Holiday' });
+        holidays.sort((a, b) => a.date.localeCompare(b.date));
+        updateSettings({ holidays: JSON.stringify(holidays) });
+        setNewHolidayDate('');
+        setNewHolidayName('');
+    };
+
+    const removeHoliday = (dateToRemove) => {
+        const holidays = getHolidays().filter(h => h.date !== dateToRemove);
+        updateSettings({ holidays: JSON.stringify(holidays) });
     };
 
     // --- HISTORY GENERATOR ---
@@ -124,9 +160,23 @@ function AdminDashboard({ onBack, onLoginAs }) {
                         </div>
                         <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
                         <div>
+                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Mode</div>
+                            <div style={{fontWeight:'bold', fontSize:'13px', color: settings.force_override ? '#d39e00' : '#007bff'}}>{settings.force_override ? '🔒 Force Override' : '🤖 Auto Schedule'}</div>
+                        </div>
+                        <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                        <div>
                             <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Simulated Time</div>
                             <div style={{fontWeight:'bold', fontSize:'14px'}}>{new Date(settings.simulated_date || Date.now()).toLocaleString()}</div>
                         </div>
+                        {marketCheckResult && (
+                            <>
+                                <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                                <div>
+                                    <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Reason</div>
+                                    <div style={{fontSize:'12px', color:'#555'}}>{marketCheckResult.reason}</div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
                 <div style={{display:'flex', gap:'10px', flexDirection:'column', alignItems:'flex-end'}}>
@@ -212,28 +262,146 @@ function AdminDashboard({ onBack, onLoginAs }) {
             )}
 
             {activeTab === 'settings' && (
-                <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                    <h3>Time & Market Control</h3>
-                    <div style={{display:'flex', gap:'20px', marginBottom:'30px'}}>
-                        <button onClick={() => updateSettings({market_status: 'OPEN'})} style={{ padding: '20px', flex:1, border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'18px', background: settings.market_status==='OPEN' ? '#28a745' : '#eee', color: settings.market_status==='OPEN'?'white':'#999'}}>Market OPEN</button>
-                        <button onClick={() => updateSettings({market_status: 'CLOSED'})} style={{ padding: '20px', flex:1, border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'18px', background: settings.market_status==='CLOSED' ? '#dc3545' : '#eee', color: settings.market_status==='CLOSED'?'white':'#999'}}>Market CLOSED</button>
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    
+                    {/* LEFT COLUMN: Market Controls */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        
+                        {/* Force Override Toggle */}
+                        <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderTop: settings.force_override ? '4px solid #ffc107' : '4px solid #007bff' }}>
+                            <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>Market Mode</h3>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>
+                                {settings.force_override 
+                                    ? '🔒 Force Override — You control the market status manually.' 
+                                    : '🤖 Auto Schedule — Market opens/closes based on hours, weekdays, and holidays.'}
+                            </p>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                <button onClick={() => updateSettings({ force_override: false })} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', background: !settings.force_override ? '#007bff' : '#eee', color: !settings.force_override ? 'white' : '#999' }}>🤖 Auto Schedule</button>
+                                <button onClick={() => updateSettings({ force_override: true })} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', background: settings.force_override ? '#ffc107' : '#eee', color: settings.force_override ? '#000' : '#999' }}>🔒 Force Override</button>
+                            </div>
 
-                    <div style={{marginBottom: '30px'}}>
-                        <h4>Time Machine (Quick Jump)</h4>
-                        <div style={{display:'flex', gap:'10px'}}>
-                            <button onClick={() => advanceTime(1)} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+1 Hour</button>
-                            <button onClick={() => advanceTime(24)} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+1 Day</button>
-                            <button onClick={() => advanceTime(168)} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+1 Week</button>
+                            {/* Show OPEN/CLOSED buttons only when force override is on */}
+                            {settings.force_override && (
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button onClick={() => updateSettings({ market_status: 'OPEN' })} style={{ flex: 1, padding: '16px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', background: settings.market_status === 'OPEN' ? '#28a745' : '#eee', color: settings.market_status === 'OPEN' ? 'white' : '#999' }}>✅ FORCE OPEN</button>
+                                    <button onClick={() => updateSettings({ market_status: 'CLOSED' })} style={{ flex: 1, padding: '16px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', background: settings.market_status === 'CLOSED' ? '#dc3545' : '#eee', color: settings.market_status === 'CLOSED' ? 'white' : '#999' }}>🚫 FORCE CLOSED</button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Market Hours */}
+                        <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                            <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>⏰ Trading Hours</h3>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>Set when the market opens and closes each weekday.</p>
+                            <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Open</label>
+                                    <input type="time" value={settings.market_open_time || '09:30'} onChange={e => updateSettings({ market_open_time: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '16px', boxSizing: 'border-box' }} />
+                                </div>
+                                <div style={{ fontSize: '20px', color: '#ccc', paddingBottom: '10px' }}>→</div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Close</label>
+                                    <input type="time" value={settings.market_close_time || '16:00'} onChange={e => updateSettings({ market_close_time: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid #ccc', borderRadius: '6px', fontSize: '16px', boxSizing: 'border-box' }} />
+                                </div>
+                            </div>
+                            <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>
+                                Currently: {settings.market_open_time || '09:30'} — {settings.market_close_time || '16:00'} (Mon–Fri)
+                            </div>
+                        </div>
+
+                        {/* Time Machine */}
+                        <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                            <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>🕐 Time Machine</h3>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>Jump forward in simulated time, or pick a specific date.</p>
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                <button onClick={() => advanceTime(1)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Hour</button>
+                                <button onClick={() => advanceTime(24)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Day</button>
+                                <button onClick={() => advanceTime(168)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Week</button>
+                            </div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Jump to Specific Date & Time</label>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <input type="datetime-local" value={customDate} onChange={(e) => setCustomDate(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px' }} />
+                                <button onClick={handleDateChange} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Set Date</button>
+                            </div>
+                            <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>
+                                Current simulated time: <strong>{new Date(settings.simulated_date || Date.now()).toLocaleString()}</strong>
+                            </div>
                         </div>
                     </div>
 
-                    <div>
-                        <h4>Calendar Control (Specific Date)</h4>
-                        <p style={{color:'#666', marginBottom:'10px'}}>Manually set the simulation date and time.</p>
-                        <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-                            <input type="datetime-local" value={customDate} onChange={(e) => setCustomDate(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                            <button onClick={handleDateChange} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', whiteSpace:'nowrap' }}>Update Time</button>
+                    {/* RIGHT COLUMN: Holidays */}
+                    <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', alignSelf: 'start' }}>
+                        <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>📅 Market Holidays</h3>
+                        <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>The market will be automatically closed on these dates (when in Auto Schedule mode).</p>
+                        
+                        {/* Add Holiday Form */}
+                        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', padding: '15px', background: '#f8f9fa', borderRadius: '8px' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#666', marginBottom: '4px', textTransform: 'uppercase' }}>Date</label>
+                                <input type="date" value={newHolidayDate} onChange={e => setNewHolidayDate(e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', color: '#666', marginBottom: '4px', textTransform: 'uppercase' }}>Name</label>
+                                <input type="text" value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} placeholder="e.g. Independence Day" style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px', boxSizing: 'border-box' }} />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                                <button onClick={addHoliday} style={{ padding: '8px 16px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>+ Add</button>
+                            </div>
+                        </div>
+
+                        {/* Holiday List */}
+                        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                            {getHolidays().length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '30px', color: '#999' }}>
+                                    <div style={{ fontSize: '30px', marginBottom: '10px' }}>📅</div>
+                                    <p>No holidays set. Add some above.</p>
+                                </div>
+                            ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                                    <thead>
+                                        <tr style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
+                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: '#666' }}>Date</th>
+                                            <th style={{ textAlign: 'left', padding: '10px 12px', fontSize: '12px', color: '#666' }}>Holiday Name</th>
+                                            <th style={{ textAlign: 'right', padding: '10px 12px', fontSize: '12px', color: '#666' }}>Remove</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {getHolidays().map(h => (
+                                            <tr key={h.date} style={{ borderBottom: '1px solid #eee' }}>
+                                                <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{h.date}</td>
+                                                <td style={{ padding: '10px 12px' }}>{h.name}</td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                                    <button onClick={() => removeHoliday(h.date)} style={{ padding: '4px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>✕</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        {/* Quick-add common US holidays */}
+                        <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #eee' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '8px', textTransform: 'uppercase' }}>Quick Add 2026 US Holidays</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {[
+                                    { date: '2026-01-01', name: "New Year's Day" },
+                                    { date: '2026-01-19', name: 'MLK Jr. Day' },
+                                    { date: '2026-02-16', name: "Presidents' Day" },
+                                    { date: '2026-04-03', name: 'Good Friday' },
+                                    { date: '2026-05-25', name: 'Memorial Day' },
+                                    { date: '2026-06-19', name: 'Juneteenth' },
+                                    { date: '2026-07-03', name: 'Independence Day (Obs)' },
+                                    { date: '2026-09-07', name: 'Labor Day' },
+                                    { date: '2026-11-26', name: 'Thanksgiving' },
+                                    { date: '2026-12-25', name: 'Christmas' },
+                                ].map(h => {
+                                    const exists = getHolidays().find(x => x.date === h.date);
+                                    return (
+                                        <button key={h.date} disabled={exists} onClick={() => { setNewHolidayDate(h.date); setNewHolidayName(h.name); }} style={{ padding: '4px 8px', fontSize: '11px', background: exists ? '#e9ecef' : '#f0f7ff', color: exists ? '#999' : '#007bff', border: '1px solid ' + (exists ? '#dee2e6' : '#b8daff'), borderRadius: '4px', cursor: exists ? 'default' : 'pointer' }}>{h.name}</button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>
