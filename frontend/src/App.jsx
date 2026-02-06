@@ -55,6 +55,7 @@ function App() {
   const [chartData, setChartData] = useState([]);
   const [history, setHistory] = useState([]);
   const [marketStatus, setMarketStatus] = useState('OPEN'); // 'OPEN' or 'CLOSED'
+  const [lastActivity, setLastActivity] = useState(null);
 
   // --- PENDING QUEUE STATE ---
   const [pendingTx, setPendingTx] = useState([]); 
@@ -130,12 +131,13 @@ function App() {
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
-        const [portRes, holdRes, chartRes, marketRes, settingsRes] = await Promise.all([
+        const [portRes, holdRes, chartRes, marketRes, settingsRes, activityRes] = await Promise.all([
             fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
             fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
             fetch(`${API_BASE}/api/portfolio/chart/${userId}`),
             fetch(`${API_BASE}/api/stocks`),
-            fetch(`${API_BASE}/api/admin/settings`)
+            fetch(`${API_BASE}/api/admin/settings`),
+            fetch(`${API_BASE}/api/portfolio/last-activity/${userId}`)
         ]);
 
         const portData = await portRes.json();
@@ -143,6 +145,7 @@ function App() {
         const chartData = await chartRes.json();
         const marketData = await marketRes.json();
         const settingsData = await settingsRes.json();
+        const activityData = await activityRes.json();
 
         if (!portData.error) setPortfolio(portData);
         setHoldings(Array.isArray(holdData) ? holdData : []);
@@ -153,6 +156,9 @@ function App() {
         if (settingsData && settingsData.market_status) {
             setMarketStatus(settingsData.market_status);
         }
+
+        // Update Last Activity
+        if (activityData) setLastActivity(activityData);
 
     } catch (err) { console.error("Dashboard Load Error:", err); } 
     finally { setDataLoading(false); }
@@ -467,11 +473,34 @@ function App() {
               {/* 1. METRICS ROW */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
                   <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
+                  <MetricCard title="Stock Holdings" value={formatMoney(portfolio.stockValue)} sub={`${holdings.length} Position${holdings.length !== 1 ? 's' : ''}`} color="#007bff" />
                   <MetricCard title="Net Account Value" value={formatMoney(portfolio.totalValue)} sub="Cash + Holdings" highlight />
                   <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                       <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Day's Change</div>
                       <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '5px' }}><ChangeIndicator val={portfolio.dayChange} /></div>
                       <div style={{ fontSize: '13px', marginTop: '2px' }}><ChangeIndicator val={portfolio.dayChangePct} isPercent /></div>
+                  </div>
+                  {/* Last Transaction Card */}
+                  <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: '4px solid #6c757d' }}>
+                      <div style={{ fontSize: '12px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '5px' }}>Last Activity</div>
+                      {lastActivity ? (
+                          <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                  <span style={{ 
+                                      padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+                                      background: lastActivity.action_type === 'BUY' ? '#d4edda' : lastActivity.action_type === 'SELL' ? '#f8d7da' : lastActivity.action_type === 'DEPOSIT' ? '#d4edda' : '#fff3cd',
+                                      color: lastActivity.action_type === 'BUY' ? '#155724' : lastActivity.action_type === 'SELL' ? '#721c24' : lastActivity.action_type === 'DEPOSIT' ? '#155724' : '#856404'
+                                  }}>
+                                      {lastActivity.action_type}
+                                  </span>
+                                  {lastActivity.category === 'TRADE' && <span style={{ fontWeight: 'bold', color: '#007bff', fontSize: '14px' }}>{lastActivity.label}</span>}
+                              </div>
+                              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#333' }}>{formatMoney(lastActivity.amount)}</div>
+                              <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>{formatDate(lastActivity.created_at)}</div>
+                          </>
+                      ) : (
+                          <div style={{ fontSize: '14px', color: '#999', marginTop: '5px' }}>No activity yet</div>
+                      )}
                   </div>
               </div>
 
