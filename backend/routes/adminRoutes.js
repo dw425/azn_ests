@@ -2,6 +2,19 @@ const express = require('express');
 const router = express.Router();
 // FIX: Uses ../db because this file is inside backend/routes/
 const db = require('../db'); 
+const { getMarketStatus } = require('../utils/marketCheck');
+
+// ==========================================
+// 0. MARKET STATUS CHECK (Used by frontend & order routes)
+// ==========================================
+router.get('/market-check', async (req, res) => {
+    try {
+        const status = await getMarketStatus();
+        res.json(status);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ==========================================
 // 1. SYSTEM SETTINGS (Market Status & Time)
@@ -12,8 +25,14 @@ router.get('/settings', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM system_settings WHERE id = 1');
     if (result.rows.length === 0) {
-      // Default fallback if DB is empty
-      return res.json({ market_status: 'OPEN', simulated_date: new Date() });
+      return res.json({ 
+        market_status: 'OPEN', 
+        simulated_date: new Date(), 
+        market_open_time: '09:30', 
+        market_close_time: '16:00', 
+        force_override: false, 
+        holidays: '[]' 
+      });
     }
     res.json(result.rows[0]);
   } catch (err) {
@@ -22,23 +41,32 @@ router.get('/settings', async (req, res) => {
   }
 });
 
-// UPDATE system settings (Open/Close Market, Change Date)
+// UPDATE system settings (Market status, hours, holidays, date)
 router.post('/settings', async (req, res) => {
   try {
-    const { market_status, simulated_date } = req.body;
+    const { market_status, simulated_date, market_open_time, market_close_time, force_override, holidays } = req.body;
     
-    // Use COALESCE to keep existing value if the new one is undefined
-    // This allows us to update JUST status or JUST date
     const updateQuery = `
       UPDATE system_settings 
       SET 
         market_status = COALESCE($1, market_status),
-        simulated_date = COALESCE($2, simulated_date)
+        simulated_date = COALESCE($2, simulated_date),
+        market_open_time = COALESCE($3, market_open_time),
+        market_close_time = COALESCE($4, market_close_time),
+        force_override = COALESCE($5, force_override),
+        holidays = COALESCE($6, holidays)
       WHERE id = 1 
       RETURNING *
     `;
     
-    const result = await db.query(updateQuery, [market_status, simulated_date]);
+    const result = await db.query(updateQuery, [
+      market_status, 
+      simulated_date, 
+      market_open_time, 
+      market_close_time, 
+      force_override !== undefined ? force_override : null,
+      holidays
+    ]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err.message);
