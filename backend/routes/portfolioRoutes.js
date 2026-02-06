@@ -85,54 +85,97 @@ router.get('/holdings/:userId', async (req, res) => {
     }
 });
 
-// 3. GET CHART DATA (FIXED: Corrected aggregation logic)
+// 3. GET CHART DATA (Supports range: 1D, 5D, 30D, 90D, 1Y + stock filtering)
 router.get('/chart/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+        const range = req.query.range || '30D';
+        const stockFilter = req.query.stocks; // comma-separated stock_ids (optional)
         
         // 1. Get current wallet cash
         const walletRes = await db.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
         const cash = walletRes.rows[0] ? Number(walletRes.rows[0].balance) : 0;
 
-        /**
-         * 2. THE FIX: 
-         * We first calculate the Average Price per day to flatten the 3,600+ points.
-         * Then we multiply that Average by your holdings.
-         */
-        const query = `
-            WITH DailyPrices AS (
+        // 2. Determine interval based on range
+        let interval;
+        let useHourly = false;
+        switch (range) {
+            case '1D':  interval = '1 day';   useHourly = true; break;
+            case '5D':  interval = '5 days';  break;
+            case '30D': interval = '30 days'; break;
+            case '90D': interval = '90 days'; break;
+            case '1Y':  interval = '365 days'; break;
+            default:    interval = '30 days'; break;
+        }
+
+        // 3. Build stock filter clause
+        let stockClause = '';
+        let queryParams = [userId];
+        
+        if (stockFilter) {
+            const stockIds = stockFilter.split(',').map(Number).filter(n => !isNaN(n));
+            if (stockIds.length > 0) {
+                stockClause = `AND h.stock_id = ANY($2)`;
+                queryParams.push(stockIds);
+            }
+        }
+
+        // 4. Query based on range type
+        let query;
+        if (useHourly) {
+            // 1D: Use all records from today (hourly snapshots from priceEngine)
+            query = `
                 SELECT 
-                    stock_id, 
-                    AVG(price) as avg_day_price, 
-                    recorded_at::DATE as trade_date
-                FROM stock_prices
-                WHERE recorded_at > NOW() - INTERVAL '30 days'
-                GROUP BY stock_id, recorded_at::DATE
-            )
-            SELECT 
-                dp.trade_date as date,
-                SUM(dp.avg_day_price * h.quantity) as stock_value
-            FROM holdings h
-            JOIN DailyPrices dp ON h.stock_id = dp.stock_id
-            WHERE h.user_id = $1
-            GROUP BY dp.trade_date
-            ORDER BY date ASC
-        `;
+                    sp.recorded_at as date,
+                    SUM(sp.price * h.quantity) as stock_value
+                FROM holdings h
+                JOIN stock_prices sp ON h.stock_id = sp.stock_id
+                WHERE h.user_id = $1
+                AND sp.recorded_at > NOW() - INTERVAL '${interval}'
+                ${stockClause}
+                GROUP BY sp.recorded_at
+                ORDER BY date ASC
+            `;
+        } else {
+            // 5D/30D/90D/1Y: Use EOD close prices (one per day)
+            query = `
+                WITH DailyPrices AS (
+                    SELECT DISTINCT ON (stock_id, recorded_at::DATE)
+                        stock_id, 
+                        price as close_price, 
+                        recorded_at::DATE as trade_date
+                    FROM stock_prices
+                    WHERE recorded_at > NOW() - INTERVAL '${interval}'
+                    ORDER BY stock_id, recorded_at::DATE, recorded_at DESC
+                )
+                SELECT 
+                    dp.trade_date as date,
+                    SUM(dp.close_price * h.quantity) as stock_value
+                FROM holdings h
+                JOIN DailyPrices dp ON h.stock_id = dp.stock_id
+                WHERE h.user_id = $1
+                ${stockClause}
+                GROUP BY dp.trade_date
+                ORDER BY date ASC
+            `;
+        }
         
-        const result = await db.query(query, [userId]);
+        const result = await db.query(query, queryParams);
         
-        // 3. Format for Frontend (Add Cash once per data point)
+        // 5. Format for Frontend
         const chartData = result.rows.map((row, index) => ({
             day: index + 1,
-            date: new Date(row.date).toLocaleDateString(),
+            date: useHourly 
+                ? new Date(row.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : new Date(row.date).toLocaleDateString(),
             value: Number(row.stock_value) + cash
         }));
 
-        // If no history exists, return a flat line showing just the cash
+        // If no history exists, return flat line
         if (chartData.length === 0) {
             return res.json([
-                { day: 1, value: cash },
-                { day: 30, value: cash }
+                { day: 1, date: 'Now', value: cash },
+                { day: 2, date: 'Now', value: cash }
             ]);
         }
 
