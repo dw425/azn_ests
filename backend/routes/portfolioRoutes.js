@@ -29,7 +29,7 @@ router.get('/summary/:userId', async (req, res) => {
         holdingsRes.rows.forEach(row => {
             const qty = Number(row.quantity);
             const curr = Number(row.current_price);
-            const base = Number(row.base_price); // Treating base_price as "Open Price" for day calc
+            const base = Number(row.base_price); 
             
             stockValue += qty * curr;
             dayStartValue += qty * base;
@@ -80,49 +80,61 @@ router.get('/holdings/:userId', async (req, res) => {
     }
 });
 
-// 3. GET CHART DATA (Real Historical Calculation)
+// 3. GET CHART DATA (FIXED: Corrected aggregation logic)
 router.get('/chart/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         
-        // 1. Get current wallet cash (Assume constant for simplicity in this MVP)
+        // 1. Get current wallet cash
         const walletRes = await db.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
         const cash = walletRes.rows[0] ? Number(walletRes.rows[0].balance) : 0;
 
-        // 2. Get history of current holdings
-        // This query sums up (Price * Quantity) for every day in history
+        /**
+         * 2. THE FIX: 
+         * We first calculate the Average Price per day to flatten the 3,600+ points.
+         * Then we multiply that Average by your holdings.
+         */
         const query = `
+            WITH DailyPrices AS (
+                SELECT 
+                    stock_id, 
+                    AVG(price) as avg_day_price, 
+                    recorded_at::DATE as trade_date
+                FROM stock_prices
+                WHERE recorded_at > NOW() - INTERVAL '30 days'
+                GROUP BY stock_id, recorded_at::DATE
+            )
             SELECT 
-                p.recorded_at::DATE as date,
-                SUM(p.price * h.quantity) as stock_value
+                dp.trade_date as date,
+                SUM(dp.avg_day_price * h.quantity) as stock_value
             FROM holdings h
-            JOIN stock_prices p ON h.stock_id = p.stock_id
+            JOIN DailyPrices dp ON h.stock_id = dp.stock_id
             WHERE h.user_id = $1
-            AND p.recorded_at > NOW() - INTERVAL '30 days'
-            GROUP BY p.recorded_at::DATE
+            GROUP BY dp.trade_date
             ORDER BY date ASC
         `;
         
         const result = await db.query(query, [userId]);
         
-        // 3. Format for Frontend (Add Cash to Stock Value)
-        const chartData = result.rows.map(row => ({
-            day: new Date(row.date).toLocaleDateString(),
+        // 3. Format for Frontend (Add Cash once per data point)
+        const chartData = result.rows.map((row, index) => ({
+            day: index + 1,
+            date: new Date(row.date).toLocaleDateString(),
             value: Number(row.stock_value) + cash
         }));
 
-        // If no history (new user), return flat line
+        // If no history exists, return a flat line showing just the cash
         if (chartData.length === 0) {
             return res.json([
-                { day: 'Start', value: cash },
-                { day: 'Now', value: cash }
+                { day: 1, value: cash },
+                { day: 30, value: cash }
             ]);
         }
 
         res.json(chartData);
 
     } catch (err) {
-        console.error(err);
+        console.error("Chart Logic Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
