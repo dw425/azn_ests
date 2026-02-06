@@ -63,6 +63,8 @@ function App() {
   const [sectorFilter, setSectorFilter] = useState('All');
   const [showHighValueWarning, setShowHighValueWarning] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
+  const [walletMode, setWalletMode] = useState('DEPOSIT'); // 'DEPOSIT' | 'WITHDRAW'
+  const [walletHistory, setWalletHistory] = useState([]);
   
   // --- MODAL STATE ---
   const [selectedStock, setSelectedStock] = useState(null); 
@@ -102,7 +104,7 @@ function App() {
   useEffect(() => {
       if(token && user) {
           if(view === 'dashboard') loadDashboard(user.id || user.user_id);
-          if(view === 'history') loadHistory(user.id || user.user_id);
+          if(view === 'history') { loadHistory(user.id || user.user_id); loadWalletHistory(user.id || user.user_id); }
       }
   }, [view, token, user]);
 
@@ -164,6 +166,14 @@ function App() {
           setHistory(Array.isArray(data) ? data : []);
       } catch (err) { console.error("History Load Error:", err); } 
       finally { setDataLoading(false); }
+  };
+
+  const loadWalletHistory = async (userId) => {
+      try {
+          const res = await fetch(`${API_BASE}/api/wallet/history/${userId}`);
+          const data = await res.json();
+          setWalletHistory(Array.isArray(data) ? data : []);
+      } catch (err) { console.error("Wallet History Load Error:", err); }
   };
 
   // --- AUTHENTICATION HANDLERS ---
@@ -292,13 +302,17 @@ function App() {
 
   // --- WALLET LOGIC ---
 
-  const handleAddFunds = async () => {
+  const handleWalletTransaction = async () => {
+      const amt = Number(walletAmount);
+      if (!amt || amt <= 0) { setWalletMsg('❌ Enter a valid amount.'); return; }
+      
       setWalletMsg('Processing...');
       try {
+          const sendAmount = walletMode === 'WITHDRAW' ? -amt : amt;
           const res = await fetch(`${API_BASE}/api/wallet/add`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: user.id || user.user_id, amount: Number(walletAmount) })
+              body: JSON.stringify({ userId: user.id || user.user_id, amount: sendAmount })
           });
           const data = await res.json();
           if (res.ok) {
@@ -307,6 +321,7 @@ function App() {
                   setShowWallet(false); 
                   setWalletMsg(''); 
                   setWalletAmount(''); 
+                  setWalletMode('DEPOSIT');
                   loadDashboard(user.id || user.user_id); 
               }, 1500);
           } else { setWalletMsg(`❌ ${data.error}`); }
@@ -606,14 +621,15 @@ function App() {
             </>
         ) : (
             // HISTORY VIEW
-            <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden', minHeight:'500px' }}>
-                <div style={{ padding: '20px 25px', borderBottom: '1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center' }}><h3 style={{ margin: 0 }}>Transaction History</h3><button onClick={()=>loadHistory(user.id || user.user_id)} style={{background:'none', border:'1px solid #ddd', borderRadius:'4px', padding:'5px 10px', cursor:'pointer', fontSize:'12px'}}>Refresh</button></div>
+            <>
+            <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden', minHeight:'300px', marginBottom:'30px' }}>
+                <div style={{ padding: '20px 25px', borderBottom: '1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center' }}><h3 style={{ margin: 0 }}>📈 Stock Trades</h3><button onClick={()=>{loadHistory(user.id || user.user_id); loadWalletHistory(user.id || user.user_id);}} style={{background:'none', border:'1px solid #ddd', borderRadius:'4px', padding:'5px 10px', cursor:'pointer', fontSize:'12px'}}>Refresh All</button></div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                     <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                         <tr><th style={{ textAlign: 'left', padding: '12px 15px' }}>Date/Time</th><th style={{ textAlign: 'left', padding: '12px 15px' }}>Type</th><th style={{ textAlign: 'left', padding: '12px 15px' }}>Symbol</th><th style={{ textAlign: 'left', padding: '12px 15px' }}>Quantity</th><th style={{ textAlign: 'left', padding: '12px 15px' }}>Price Executed</th><th style={{ textAlign: 'left', padding: '12px 15px' }}>Total Amount</th></tr>
                     </thead>
                     <tbody>
-                        {history.length === 0 ? (<tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No transactions found.</td></tr>) : (history.map((tx) => (
+                        {history.length === 0 ? (<tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No stock trades found.</td></tr>) : (history.map((tx) => (
                             <tr key={tx.order_id} style={{ borderBottom: '1px solid #eee' }}>
                                 <td style={{ padding: '12px 15px' }}>{formatDate(tx.created_at)}</td>
                                 <td style={{ padding: '12px 15px' }}><span style={{ padding:'4px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:'bold', background: tx.order_type === 'BUY' ? '#d4edda' : '#f8d7da', color: tx.order_type === 'BUY' ? '#155724' : '#721c24' }}>{tx.order_type}</span></td>
@@ -626,6 +642,44 @@ function App() {
                     </tbody>
                 </table>
             </div>
+
+            {/* WALLET ACTIVITY SECTION */}
+            <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden', minHeight:'200px' }}>
+                <div style={{ padding: '20px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>💰 Wallet Activity</h3></div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                    <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
+                        <tr>
+                            <th style={{ textAlign: 'left', padding: '12px 15px' }}>Date/Time</th>
+                            <th style={{ textAlign: 'left', padding: '12px 15px' }}>Type</th>
+                            <th style={{ textAlign: 'left', padding: '12px 15px' }}>Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {walletHistory.length === 0 ? (
+                            <tr><td colSpan="3" style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No wallet transactions found.</td></tr>
+                        ) : (
+                            walletHistory.map((wt) => (
+                                <tr key={wt.transaction_id} style={{ borderBottom: '1px solid #eee' }}>
+                                    <td style={{ padding: '12px 15px' }}>{formatDate(wt.created_at)}</td>
+                                    <td style={{ padding: '12px 15px' }}>
+                                        <span style={{ 
+                                            padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+                                            background: wt.transaction_type === 'DEPOSIT' ? '#d4edda' : '#fff3cd',
+                                            color: wt.transaction_type === 'DEPOSIT' ? '#155724' : '#856404'
+                                        }}>
+                                            {wt.transaction_type === 'DEPOSIT' ? '↓ DEPOSIT' : '↑ WITHDRAW'}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '12px 15px', fontWeight: 'bold', color: wt.transaction_type === 'DEPOSIT' ? '#28a745' : '#dc3545' }}>
+                                        {wt.transaction_type === 'DEPOSIT' ? '+' : '-'}{formatMoney(wt.amount)}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            </>
         )}
       </div>
 
@@ -667,19 +721,109 @@ function App() {
           </div>
       )}
 
-      {/* MODAL 3: WALLET */}
+      {/* MODAL 3: WALLET (Deposit & Withdraw) */}
       {showWallet && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-              <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
-                  <h2 style={{marginTop:0}}>💰 Add Funds</h2>
-                  <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
-                       <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Balance:</span><strong>{formatMoney(portfolio.cash)}</strong></div>
-                       <div><input type="number" max="100000" value={walletAmount} onChange={e=>setWalletAmount(e.target.value)} placeholder="Amount ($)" style={{width:'100%', padding:'10px', boxSizing:'border-box', border:'1px solid #ccc', borderRadius:'4px'}} /></div>
+              <div style={{ background: 'white', padding: '0', borderRadius: '12px', width: '420px', boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+                  {/* Header with Balance */}
+                  <div style={{ background: '#2c3e50', padding: '25px 30px', color: 'white' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                          <h2 style={{ margin: 0, fontSize: '20px' }}>💰 Wallet</h2>
+                          <button onClick={() => { setShowWallet(false); setWalletMsg(''); setWalletAmount(''); setWalletMode('DEPOSIT'); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '5px' }}>Available Balance</div>
+                      <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{formatMoney(portfolio.cash)}</div>
                   </div>
-                  {walletMsg && <div style={{marginBottom:'15px', padding:'10px', background: walletMsg.includes('Success')?'#d4edda':'#f8d7da', color: walletMsg.includes('Success')?'#155724':'#721c24', borderRadius:'4px', fontSize:'13px'}}>{walletMsg}</div>}
-                  <div style={{display:'flex', gap:'10px'}}>
-                      <button onClick={handleAddFunds} style={{ width: '100%', padding: '12px', background:'#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: '600' }}>Deposit</button>
-                      <button onClick={()=>{setShowWallet(false); setWalletMsg(''); setWalletAmount('')}} style={{ width: '100%', padding: '12px', background:'#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px', fontWeight: '600' }}>Cancel</button>
+
+                  {/* Deposit / Withdraw Toggle */}
+                  <div style={{ display: 'flex', borderBottom: '1px solid #e1e4e8' }}>
+                      <button 
+                          onClick={() => { setWalletMode('DEPOSIT'); setWalletMsg(''); setWalletAmount(''); }}
+                          style={{ 
+                              flex: 1, padding: '14px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px',
+                              background: walletMode === 'DEPOSIT' ? '#fff' : '#f8f9fa',
+                              color: walletMode === 'DEPOSIT' ? '#28a745' : '#999',
+                              borderBottom: walletMode === 'DEPOSIT' ? '3px solid #28a745' : '3px solid transparent'
+                          }}>
+                          ↓ Deposit
+                      </button>
+                      <button 
+                          onClick={() => { setWalletMode('WITHDRAW'); setWalletMsg(''); setWalletAmount(''); }}
+                          style={{ 
+                              flex: 1, padding: '14px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px',
+                              background: walletMode === 'WITHDRAW' ? '#fff' : '#f8f9fa',
+                              color: walletMode === 'WITHDRAW' ? '#dc3545' : '#999',
+                              borderBottom: walletMode === 'WITHDRAW' ? '3px solid #dc3545' : '3px solid transparent'
+                          }}>
+                          ↑ Withdraw
+                      </button>
+                  </div>
+
+                  {/* Amount Input */}
+                  <div style={{ padding: '25px 30px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                          {walletMode === 'DEPOSIT' ? 'Deposit Amount' : 'Withdraw Amount'}
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#999', fontSize: '18px', fontWeight: 'bold' }}>$</span>
+                          <input 
+                              type="number" 
+                              min="1" 
+                              max={walletMode === 'WITHDRAW' ? portfolio.cash : 100000}
+                              value={walletAmount} 
+                              onChange={e => setWalletAmount(e.target.value)} 
+                              placeholder="0.00" 
+                              style={{ width: '100%', padding: '14px 14px 14px 30px', boxSizing: 'border-box', border: '2px solid #e1e4e8', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold' }} 
+                          />
+                      </div>
+
+                      {/* Quick Amount Buttons */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                          {(walletMode === 'DEPOSIT' ? [100, 500, 1000, 5000] : [100, 500, 1000]).map(amt => (
+                              <button key={amt} onClick={() => setWalletAmount(String(amt))} style={{ flex: 1, padding: '8px', background: '#f0f2f5', border: '1px solid #e1e4e8', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#555' }}>
+                                  ${amt.toLocaleString()}
+                              </button>
+                          ))}
+                          {walletMode === 'WITHDRAW' && (
+                              <button onClick={() => setWalletAmount(String(Math.floor(portfolio.cash)))} style={{ flex: 1, padding: '8px', background: '#fff3f3', border: '1px solid #f5c6cb', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#dc3545' }}>
+                                  MAX
+                              </button>
+                          )}
+                      </div>
+
+                      {/* Validation hint */}
+                      {walletMode === 'WITHDRAW' && Number(walletAmount) > portfolio.cash && (
+                          <div style={{ marginTop: '10px', fontSize: '12px', color: '#dc3545', fontWeight: '600' }}>
+                              ⚠️ Exceeds available balance of {formatMoney(portfolio.cash)}
+                          </div>
+                      )}
+                      {walletMode === 'DEPOSIT' && Number(walletAmount) > 100000 && (
+                          <div style={{ marginTop: '10px', fontSize: '12px', color: '#dc3545', fontWeight: '600' }}>
+                              ⚠️ Max deposit is $100,000 per transaction
+                          </div>
+                      )}
+
+                      {/* Status Message */}
+                      {walletMsg && (
+                          <div style={{ marginTop: '15px', padding: '10px', background: walletMsg.includes('✅') ? '#d4edda' : '#f8d7da', color: walletMsg.includes('✅') ? '#155724' : '#721c24', borderRadius: '6px', fontSize: '13px', fontWeight: '500' }}>
+                              {walletMsg}
+                          </div>
+                      )}
+
+                      {/* Action Button */}
+                      <button 
+                          onClick={handleWalletTransaction} 
+                          disabled={!walletAmount || Number(walletAmount) <= 0 || (walletMode === 'WITHDRAW' && Number(walletAmount) > portfolio.cash)}
+                          style={{ 
+                              width: '100%', padding: '14px', marginTop: '20px',
+                              background: (!walletAmount || Number(walletAmount) <= 0 || (walletMode === 'WITHDRAW' && Number(walletAmount) > portfolio.cash)) 
+                                  ? '#ccc' 
+                                  : (walletMode === 'DEPOSIT' ? '#28a745' : '#dc3545'), 
+                              color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: '700',
+                              transition: 'background 0.2s'
+                          }}>
+                          {walletMode === 'DEPOSIT' ? '↓ Deposit Funds' : '↑ Withdraw Funds'}
+                      </button>
                   </div>
               </div>
           </div>
