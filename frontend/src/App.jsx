@@ -83,6 +83,7 @@ function App() {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regFullName, setRegFullName] = useState('');
   const [authError, setAuthError] = useState('');
   const [regSuccess, setRegSuccess] = useState('');
 
@@ -203,7 +204,7 @@ function App() {
     const endpoint = type === 'LOGIN' ? `${API_BASE}/api/auth/login` : `${API_BASE}/api/auth/register`;
     const payload = type === 'LOGIN' 
         ? { username: loginUsername, password: loginPassword } 
-        : { username: regUsername, email: regEmail, password: regPassword };
+        : { username: regUsername, email: regEmail, password: regPassword, full_name: regFullName };
 
     try {
       const res = await fetch(endpoint, { 
@@ -398,6 +399,7 @@ function App() {
                     <h2 style={{ fontSize: '28px', marginBottom: '10px' }}>Create Profile</h2>
                     <p style={{ color: '#bdc3c7', marginBottom: '30px', lineHeight: '1.5' }}>Join the simulation. Build your portfolio.</p>
                     <form onSubmit={(e) => handleAuth('REGISTER', e)}>
+                        <input style={{ width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' }} type="text" placeholder="Full Name" value={regFullName} onChange={e=>setRegFullName(e.target.value)} />
                         <input style={{ width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' }} type="text" placeholder="Username" value={regUsername} onChange={e=>setRegUsername(e.target.value)} />
                         <input style={{ width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' }} type="email" placeholder="Email" value={regEmail} onChange={e=>setRegEmail(e.target.value)} />
                         <input style={{ width: '100%', padding: '12px', marginBottom: '15px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: 'white', boxSizing: 'border-box' }} type="password" placeholder="Password" value={regPassword} onChange={e=>setRegPassword(e.target.value)} />
@@ -660,24 +662,30 @@ function App() {
                       <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                           <tr>
                             <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Symbol</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444', width: '200px' }}>Company</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Sector</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Volatility</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Price</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Today %</th>
-                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Action</th>
+                            <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444' }}>Company</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Price</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Open</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>High</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Low</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Volume</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Market Cap</th>
+                            <th style={{ textAlign: 'right', padding: '12px 15px', color: '#444' }}>Today %</th>
+                            <th style={{ textAlign: 'center', padding: '12px 15px', color: '#444' }}>Action</th>
                           </tr>
                       </thead>
                       <tbody>
-                          {filteredMarket.length === 0 ? (<tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center' }}>Loading or No Stocks in this Sector...</td></tr>) : (filteredMarket.map(stock => (
+                          {filteredMarket.length === 0 ? (<tr><td colSpan="10" style={{ padding: '20px', textAlign: 'center' }}>Loading or No Stocks in this Sector...</td></tr>) : (filteredMarket.map(stock => (
                               <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
                                   <td style={{ padding: '12px 15px', fontWeight: 'bold', color: '#007bff' }}>{stock.ticker}</td>
-                                  <td style={{ padding: '12px 15px', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stock.company_name}</td>
-                                  <td style={{ padding: '12px 15px' }}><span style={{background:'#eaf5ff', color:'#0366d6', padding:'2px 6px', borderRadius:'10px', fontSize:'11px'}}>{stock.sector}</span></td>
-                                  <td style={{ padding: '12px 15px' }}>{Number(stock.volatility) > 0.04 ? (<span style={{background:'#fff3cd', color:'#856404', padding:'2px 6px', borderRadius:'4px', fontSize:'11px', fontWeight:'bold'}}>⚡ High Risk</span>) : (<span style={{color:'#999', fontSize:'11px'}}>Stable</span>)}</td>
-                                  <td style={{ padding: '12px 15px', fontWeight:'bold' }}>{formatMoney(stock.current_price)}</td>
-                                  <td style={{ padding: '12px 15px' }}><ChangeIndicator val={stock.today_pct} isPercent /></td>
-                                  <td style={{ padding: '12px 15px' }}><button onClick={() => openBuyModal(stock)} style={{ padding: '6px 12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>Buy</button></td>
+                                  <td style={{ padding: '12px 15px', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stock.company_name}</td>
+                                  <td style={{ padding: '12px 15px', fontWeight:'bold', textAlign: 'right' }}>{formatMoney(stock.current_price)}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right', color: '#666' }}>{stock.daily_open ? formatMoney(stock.daily_open) : '—'}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right', color: '#28a745', fontWeight: '500' }}>{stock.day_high ? formatMoney(stock.day_high) : '—'}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right', color: '#dc3545', fontWeight: '500' }}>{stock.day_low ? formatMoney(stock.day_low) : '—'}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right' }}>{stock.volume ? Number(stock.volume).toLocaleString() : '—'}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right', fontWeight: '500' }}>{stock.market_cap ? '$' + (Number(stock.market_cap) >= 1e9 ? (Number(stock.market_cap)/1e9).toFixed(2) + 'B' : Number(stock.market_cap) >= 1e6 ? (Number(stock.market_cap)/1e6).toFixed(2) + 'M' : Number(stock.market_cap).toLocaleString()) : '—'}</td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'right' }}><ChangeIndicator val={stock.today_pct} isPercent /></td>
+                                  <td style={{ padding: '12px 15px', textAlign: 'center' }}><button onClick={() => openBuyModal(stock)} style={{ padding: '6px 12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>Buy</button></td>
                               </tr>
                           )))}
                       </tbody>
