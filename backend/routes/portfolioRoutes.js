@@ -17,7 +17,7 @@ router.get('/summary/:userId', async (req, res) => {
 
         // Get Stock Value (Current Price * Quantity)
         const holdingsRes = await db.query(`
-            SELECT h.quantity, s.current_price, s.base_price
+            SELECT h.quantity, s.current_price, s.daily_open
             FROM holdings h
             JOIN stocks s ON h.stock_id = s.stock_id
             WHERE h.user_id = $1
@@ -29,10 +29,10 @@ router.get('/summary/:userId', async (req, res) => {
         holdingsRes.rows.forEach(row => {
             const qty = Number(row.quantity);
             const curr = Number(row.current_price);
-            const base = Number(row.base_price); 
+            const open = Number(row.daily_open) || curr; // Fallback to current if daily_open is null
             
             stockValue += qty * curr;
-            dayStartValue += qty * base;
+            dayStartValue += qty * open;
         });
 
         const totalValue = cash + stockValue;
@@ -64,9 +64,14 @@ router.get('/holdings/:userId', async (req, res) => {
                 h.quantity, 
                 s.current_price, 
                 h.average_buy_price,
+                s.daily_open,
                 (s.current_price * h.quantity) as market_value,
                 ((s.current_price - h.average_buy_price) * h.quantity) as total_gain,
-                (s.current_price - s.base_price) as day_change
+                CASE 
+                    WHEN s.daily_open IS NOT NULL AND s.daily_open > 0
+                    THEN ((s.current_price - s.daily_open) / s.daily_open) * 100
+                    ELSE 0
+                END as day_change
             FROM holdings h
             JOIN stocks s ON h.stock_id = s.stock_id
             WHERE h.user_id = $1
