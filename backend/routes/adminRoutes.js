@@ -92,16 +92,15 @@ router.get('/stocks', async (req, res) => {
 // ADD New Stock
 router.post('/stocks', async (req, res) => {
     try {
-        // Map frontend 'symbol' to database 'ticker'
-        const { symbol, name, base_price, volatility, sector } = req.body;
+        const { symbol, name, base_price, volatility, sector, volume } = req.body;
         
         const query = `
-            INSERT INTO stocks (ticker, name, base_price, current_price, volatility, sector)
-            VALUES ($1, $2, $3, $3, $4, $5)
+            INSERT INTO stocks (ticker, name, base_price, current_price, volatility, sector, volume, daily_open, day_high, day_low)
+            VALUES ($1, $2, $3, $3, $4, $5, $6, $3, $3, $3)
             RETURNING *
         `;
         
-        const result = await db.query(query, [symbol.toUpperCase(), name, base_price, volatility, sector]);
+        const result = await db.query(query, [symbol.toUpperCase(), name, base_price, volatility, sector, volume || 0]);
         res.json(result.rows[0]);
     } catch (err) {
         console.error(err.message);
@@ -109,20 +108,20 @@ router.post('/stocks', async (req, res) => {
     }
 });
 
-// UPDATE Stock (Volatility, Price, Sector)
+// UPDATE Stock (Volatility, Price, Sector, Volume)
 router.put('/stocks/:ticker', async (req, res) => {
     try {
         const { ticker } = req.params;
-        const { volatility, base_price, sector } = req.body;
+        const { volatility, base_price, sector, volume } = req.body;
         
         const query = `
             UPDATE stocks 
-            SET volatility = $1, base_price = $2, sector = $3
-            WHERE ticker = $4
+            SET volatility = $1, base_price = $2, sector = $3, volume = COALESCE($4, volume)
+            WHERE ticker = $5
             RETURNING *
         `;
         
-        const result = await db.query(query, [volatility, base_price, sector, ticker]);
+        const result = await db.query(query, [volatility, base_price, sector, volume, ticker]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Stock not found" });
