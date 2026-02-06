@@ -58,6 +58,10 @@ function App() {
   const [lastActivity, setLastActivity] = useState(null);
   const [marketCheck, setMarketCheck] = useState({ allowed: true, reason: '', status: 'OPEN' });
 
+  // --- CHART CONTROLS ---
+  const [chartRange, setChartRange] = useState('30D'); // '1D', '5D', '30D', '90D', '1Y'
+  const [selectedStockIds, setSelectedStockIds] = useState([]); // empty = all holdings
+
   // --- PENDING QUEUE STATE ---
   const [pendingTx, setPendingTx] = useState([]); 
 
@@ -134,10 +138,13 @@ function App() {
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
+        const chartParams = new URLSearchParams({ range: chartRange });
+        if (selectedStockIds.length > 0) chartParams.set('stocks', selectedStockIds.join(','));
+
         const [portRes, holdRes, chartRes, marketRes, settingsRes, activityRes, marketCheckRes] = await Promise.all([
             fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
             fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
-            fetch(`${API_BASE}/api/portfolio/chart/${userId}`),
+            fetch(`${API_BASE}/api/portfolio/chart/${userId}?${chartParams}`),
             fetch(`${API_BASE}/api/stocks`),
             fetch(`${API_BASE}/api/admin/settings`),
             fetch(`${API_BASE}/api/portfolio/last-activity/${userId}`),
@@ -192,6 +199,24 @@ function App() {
           setWalletHistory(Array.isArray(data) ? data : []);
       } catch (err) { console.error("Wallet History Load Error:", err); }
   };
+
+  // Reload ONLY the chart (called when range or stock filter changes)
+  const loadChart = async (userId, range, stockIds) => {
+      try {
+          const params = new URLSearchParams({ range });
+          if (stockIds && stockIds.length > 0) params.set('stocks', stockIds.join(','));
+          const res = await fetch(`${API_BASE}/api/portfolio/chart/${userId}?${params}`);
+          const data = await res.json();
+          setChartData(Array.isArray(data) ? data : []);
+      } catch (err) { console.error("Chart Load Error:", err); }
+  };
+
+  // Re-fetch chart when range or stock filter changes
+  useEffect(() => {
+      if (token && user && view === 'dashboard') {
+          loadChart(user.id || user.user_id, chartRange, selectedStockIds);
+      }
+  }, [chartRange, selectedStockIds]);
 
   // --- AUTHENTICATION HANDLERS ---
 
@@ -372,6 +397,40 @@ function App() {
   
   const filteredMarket = market.filter(s => sectorFilter === 'All' || s.sector === sectorFilter);
 
+  // --- CHART STOCK FILTER HELPERS ---
+  const toggleStockFilter = (stockId) => {
+      setSelectedStockIds(prev => {
+          if (prev.length === 0) {
+              // Currently "all" — switch to all EXCEPT this one
+              const allIds = holdings.map(h => h.stock_id);
+              return allIds.filter(id => id !== stockId);
+          }
+          if (prev.includes(stockId)) {
+              const next = prev.filter(id => id !== stockId);
+              // If removing would leave empty, that means show all
+              return next;
+          }
+          return [...prev, stockId];
+      });
+  };
+
+  const isStockSelected = (stockId) => {
+      if (selectedStockIds.length === 0) return true; // empty = all selected
+      return selectedStockIds.includes(stockId);
+  };
+
+  const toggleAllStocks = () => {
+      if (selectedStockIds.length === 0) {
+          // All are selected, deselect all
+          setSelectedStockIds([-1]); // dummy to mean "none"
+      } else {
+          // Some or none selected, select all
+          setSelectedStockIds([]);
+      }
+  };
+
+  const allStocksSelected = selectedStockIds.length === 0;
+
   // --- RENDER: ADMIN VIEW ---
   if (token && view === 'admin') {
       return (
@@ -544,15 +603,38 @@ function App() {
 
               {/* 2. CHART SECTION */}
               <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', color: '#333' }}>Portfolio Performance (30 Day)</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                      <h3 style={{ margin: 0, fontSize: '18px', color: '#333' }}>
+                          Portfolio Performance
+                          <span style={{ fontSize: '13px', color: '#999', fontWeight: 'normal', marginLeft: '8px' }}>
+                              {chartRange === '1D' ? '(Today)' : chartRange === '5D' ? '(5 Day)' : chartRange === '30D' ? '(30 Day)' : chartRange === '90D' ? '(90 Day)' : '(1 Year)'}
+                          </span>
+                      </h3>
+                      <div style={{ display: 'flex', gap: '4px', background: '#f0f2f5', borderRadius: '6px', padding: '3px' }}>
+                          {['1D', '5D', '30D', '90D', '1Y'].map(range => (
+                              <button 
+                                  key={range} 
+                                  onClick={() => setChartRange(range)}
+                                  style={{ 
+                                      padding: '6px 14px', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                      fontSize: '12px', fontWeight: '600', transition: 'all 0.15s',
+                                      background: chartRange === range ? '#007bff' : 'transparent',
+                                      color: chartRange === range ? 'white' : '#666'
+                                  }}
+                              >
+                                  {range}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
                   <div style={{ height: '300px', width: '100%' }}>
                       <ResponsiveContainer>
                           <AreaChart data={chartData}>
                               <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#007bff" stopOpacity={0.1}/><stop offset="95%" stopColor="#007bff" stopOpacity={0}/></linearGradient></defs>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                              <XAxis dataKey="day" hide />
-                              <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${val/1000}k`} stroke="#999" fontSize={12} />
-                              <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => `Day ${label}`} />
+                              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#999' }} tickLine={false} interval="preserveStartEnd" />
+                              <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${(val/1000).toFixed(1)}k`} stroke="#999" fontSize={12} />
+                              <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => label} />
                               <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
                           </AreaChart>
                       </ResponsiveContainer>
@@ -561,10 +643,22 @@ function App() {
 
               {/* 3. HOLDINGS TABLE */}
               <div style={{ background: 'white', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden', marginBottom:'30px' }}>
-                  <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee' }}><h3 style={{ margin: 0 }}>My Positions</h3></div>
+                  <div style={{ padding: '15px 25px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0 }}>My Positions</h3>
+                      <span style={{ fontSize: '12px', color: '#999' }}>☑ Check stocks to filter chart</span>
+                  </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                       <thead style={{ background: '#f8f9fa', borderBottom: '2px solid #e1e4e8' }}>
                           <tr>
+                            <th style={{ textAlign: 'center', padding: '12px 10px', color: '#444', fontWeight: '600', fontSize: '13px', width: '40px' }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={allStocksSelected} 
+                                    onChange={toggleAllStocks} 
+                                    style={{ cursor: 'pointer', width: '15px', height: '15px' }} 
+                                    title="Select All / None"
+                                />
+                            </th>
                             <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444', fontWeight: '600', fontSize: '13px' }}>Symbol</th>
                             <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444', fontWeight: '600', fontSize: '13px' }}>Last Price</th>
                             <th style={{ textAlign: 'left', padding: '12px 15px', color: '#444', fontWeight: '600', fontSize: '13px' }}>Day Change</th>
@@ -575,8 +669,16 @@ function App() {
                           </tr>
                       </thead>
                       <tbody>
-                          {holdings.length === 0 ? (<tr><td colSpan="7" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held.</td></tr>) : (holdings.map(stock => (
-                              <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee' }}>
+                          {holdings.length === 0 ? (<tr><td colSpan="8" style={{ padding: '30px', textAlign: 'center', color: '#999' }}>No positions held.</td></tr>) : (holdings.map(stock => (
+                              <tr key={stock.stock_id} style={{ borderBottom: '1px solid #eee', opacity: isStockSelected(stock.stock_id) ? 1 : 0.5 }}>
+                                  <td style={{ textAlign: 'center', padding: '12px 10px' }}>
+                                      <input 
+                                          type="checkbox" 
+                                          checked={isStockSelected(stock.stock_id)} 
+                                          onChange={() => toggleStockFilter(stock.stock_id)} 
+                                          style={{ cursor: 'pointer', width: '15px', height: '15px' }} 
+                                      />
+                                  </td>
                                   <td style={{ padding: '12px 15px', fontWeight: 'bold', color: '#007bff' }}>{stock.ticker}</td>
                                   <td style={{ padding: '12px 15px' }}>{formatMoney(stock.current_price)}</td>
                                   <td style={{ padding: '12px 15px' }}><ChangeIndicator val={stock.day_change} isPercent /></td>
