@@ -73,6 +73,7 @@ function App() {
   const [modalMode, setModalMode] = useState('BUY'); // 'BUY' or 'SELL'
   const [quantity, setQuantity] = useState(1);
   const [tradeMsg, setTradeMsg] = useState('');
+  const [tradeError, setTradeError] = useState('');
 
   // --- FORM STATE ---
   const [walletAmount, setWalletAmount] = useState('');
@@ -295,15 +296,28 @@ function App() {
         })
       });
       
+      const data = await res.json();
+      
       if(res.ok) {
-          // Slight delay to allow DB commit, then refresh UI
+          // Success — refresh UI
           await new Promise(r => setTimeout(r, 500));
           if(view === 'dashboard') loadDashboard(tx.userId);
           if(view === 'history') loadHistory(tx.userId);
+          setTradeError('');
       } else {
-          console.error("Trade Failed:", await res.json());
+          // Server returned an error — SHOW IT
+          const errMsg = `❌ ${tx.mode} ${tx.stock.ticker} FAILED: ${data.error || 'Unknown error'} (Status: ${res.status})`;
+          console.error(errMsg);
+          setTradeError(errMsg);
+          // Auto-clear after 15 seconds
+          setTimeout(() => setTradeError(''), 15000);
       }
-    } catch (err) { console.error("Network Error on Trade:", err); }
+    } catch (err) { 
+        const errMsg = `❌ Network Error on ${tx.mode}: ${err.message}`;
+        console.error(errMsg);
+        setTradeError(errMsg);
+        setTimeout(() => setTradeError(''), 15000);
+    }
   };
 
   // 4. Cancel Trade
@@ -484,6 +498,14 @@ function App() {
         
         {view === 'dashboard' ? (
             <>
+              {/* TRADE ERROR BANNER */}
+              {tradeError && (
+                  <div style={{ padding: '15px 20px', background: '#f8d7da', border: '1px solid #f5c6cb', color: '#721c24', borderRadius: '8px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: '500', fontSize: '14px' }}>
+                      <span>{tradeError}</span>
+                      <button onClick={() => setTradeError('')} style={{ background: 'none', border: 'none', color: '#721c24', fontSize: '18px', cursor: 'pointer' }}>✕</button>
+                  </div>
+              )}
+
               {/* 1. METRICS ROW */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
                   <MetricCard title="Cash Available" value={formatMoney(portfolio.cash)} sub="Buying Power" />
