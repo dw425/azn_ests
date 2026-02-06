@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
             SELECT 
                 s.stock_id, 
                 s.ticker, 
-                s.company_name, 
+                s.name as company_name, 
                 s.sector,
                 s.volatility,
                 s.current_price,
