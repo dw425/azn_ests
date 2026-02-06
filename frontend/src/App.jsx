@@ -662,9 +662,30 @@ function App() {
                           <AreaChart data={chartData}>
                               <defs><linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#007bff" stopOpacity={0.1}/><stop offset="95%" stopColor="#007bff" stopOpacity={0}/></linearGradient></defs>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#999' }} tickLine={false} interval="preserveStartEnd" />
+                              <XAxis 
+                                  dataKey="date" 
+                                  tick={{ fontSize: 11, fill: '#999' }} 
+                                  tickLine={false} 
+                                  interval="preserveStartEnd"
+                                  tickFormatter={(val) => {
+                                      if (!val || val === 'Now') return val;
+                                      const d = new Date(val);
+                                      if (isNaN(d)) return val;
+                                      if (chartRange === '1D') return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                                      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                                  }}
+                              />
                               <YAxis domain={['auto', 'auto']} tickFormatter={(val) => `$${(val/1000).toFixed(1)}k`} stroke="#999" fontSize={12} />
-                              <Tooltip formatter={(val) => formatMoney(val)} labelFormatter={(label) => label} />
+                              <Tooltip 
+                                  formatter={(val) => formatMoney(val)} 
+                                  labelFormatter={(label) => {
+                                      if (!label || label === 'Now') return label;
+                                      const d = new Date(label);
+                                      if (isNaN(d)) return label;
+                                      if (chartRange === '1D') return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                                      return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+                                  }}
+                              />
                               <Area type="monotone" dataKey="value" stroke="#007bff" strokeWidth={2} fillOpacity={1} fill="url(#colorVal)" />
                           </AreaChart>
                       </ResponsiveContainer>
