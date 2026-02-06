@@ -3,6 +3,22 @@ import React, { useState, useEffect } from 'react';
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 
 function AdminDashboard({ onBack, onLoginAs }) {
+    // Helper: format UTC date as readable market time
+    const formatMarketTime = (dateStr) => {
+        if (!dateStr) return 'Not set';
+        const d = new Date(dateStr);
+        const month = d.getUTCMonth() + 1;
+        const day = d.getUTCDate();
+        const year = d.getUTCFullYear();
+        let hours = d.getUTCHours();
+        const mins = String(d.getUTCMinutes()).padStart(2, '0');
+        const secs = String(d.getUTCSeconds()).padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const dayName = days[d.getUTCDay()];
+        return `${dayName}, ${month}/${day}/${year} ${hours}:${mins}:${secs} ${ampm}`;
+    };
     // --- STATE MANAGEMENT ---
     const [activeTab, setActiveTab] = useState('stocks'); 
     const [users, setUsers] = useState([]);
@@ -71,13 +87,14 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     const handleDateChange = () => {
         if(customDate) {
-            updateSettings({ simulated_date: new Date(customDate).toISOString() });
+            // Store raw datetime-local value as UTC — what admin picks IS the market time
+            updateSettings({ simulated_date: customDate + ':00.000Z' });
         }
     };
 
     const advanceTime = (hours) => {
         const currentDate = new Date(settings.simulated_date || Date.now());
-        currentDate.setHours(currentDate.getHours() + hours);
+        currentDate.setUTCHours(currentDate.getUTCHours() + hours);
         updateSettings({ simulated_date: currentDate.toISOString() });
     };
 
@@ -168,7 +185,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                         <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
                         <div>
                             <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Simulated Time</div>
-                            <div style={{fontWeight:'bold', fontSize:'14px'}}>{new Date(settings.simulated_date || Date.now()).toLocaleString()}</div>
+                            <div style={{fontWeight:'bold', fontSize:'14px'}}>{formatMarketTime(settings.simulated_date)}</div>
                         </div>
                         {marketCheckResult && (
                             <>
@@ -330,7 +347,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                                 <button onClick={handleDateChange} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Set Date</button>
                             </div>
                             <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>
-                                Current simulated time: <strong>{new Date(settings.simulated_date || Date.now()).toLocaleString()}</strong>
+                                Current simulated time: <strong>{formatMarketTime(settings.simulated_date)}</strong>
                             </div>
                         </div>
                     </div>
