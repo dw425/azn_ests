@@ -116,6 +116,36 @@ function App() {
       }
   }, [view, token, user]);
 
+  // 2b. AUTO-REFRESH: Poll every 10s for live price updates when market is open
+  useEffect(() => {
+      if (!token || !user || view !== 'dashboard') return;
+      
+      const refreshLiveData = async () => {
+          const userId = user.id || user.user_id;
+          try {
+              const [portRes, holdRes, marketRes, checkRes] = await Promise.all([
+                  fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
+                  fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
+                  fetch(`${API_BASE}/api/stocks`),
+                  fetch(`${API_BASE}/api/admin/market-check`)
+              ]);
+              const [portData, holdData, marketData, checkData] = await Promise.all([
+                  portRes.json(), holdRes.json(), marketRes.json(), checkRes.json()
+              ]);
+              setPortfolio(portData);
+              setHoldings(Array.isArray(holdData) ? holdData : []);
+              setMarket(Array.isArray(marketData) ? marketData : []);
+              setMarketCheck(checkData);
+              if (checkData.status) setMarketStatus(checkData.status);
+          } catch (err) { 
+              console.error("Auto-refresh error:", err); 
+          }
+      };
+
+      const interval = setInterval(refreshLiveData, 10000);
+      return () => clearInterval(interval);
+  }, [token, user, view]);
+
   // 3. PENDING QUEUE TIMER (The 60s Countdown)
   useEffect(() => {
       if (pendingTx.length === 0) return;
