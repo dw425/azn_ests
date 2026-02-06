@@ -38,10 +38,9 @@ async function getMarketStatus() {
         const openTime = settings.market_open_time || '09:30';
         const closeTime = settings.market_close_time || '16:00';
 
-        // 2a. Weekday check (0=Sun, 6=Sat)
-        const dayOfWeek = now.getDay();
+        // 2a. Weekday check (0=Sun, 6=Sat) — use UTC to match stored time
+        const dayOfWeek = now.getUTCDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
-            // Update status in DB to reflect auto-close
             await db.query('UPDATE system_settings SET market_status = $1 WHERE id = 1', ['CLOSED']);
             return {
                 allowed: false,
@@ -59,8 +58,11 @@ async function getMarketStatus() {
             holidays = [];
         }
         
-        // Format current date as YYYY-MM-DD for comparison
-        const todayStr = now.toISOString().split('T')[0];
+        // Format current date as YYYY-MM-DD using UTC
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
         const matchedHoliday = holidays.find(h => h.date === todayStr);
         
         if (matchedHoliday) {
@@ -73,9 +75,9 @@ async function getMarketStatus() {
             };
         }
 
-        // 2c. Hours check
-        const currentHours = now.getHours();
-        const currentMinutes = now.getMinutes();
+        // 2c. Hours check — use UTC to match stored time
+        const currentHours = now.getUTCHours();
+        const currentMinutes = now.getUTCMinutes();
         const currentTimeMinutes = currentHours * 60 + currentMinutes;
 
         const [openH, openM] = openTime.split(':').map(Number);
