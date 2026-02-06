@@ -158,9 +158,9 @@ router.post('/generate-prices', async (req, res) => {
                 const dayOfWeek = date.getDay();
                 if (dayOfWeek === 0 || dayOfWeek === 6) continue;
 
-                // Random walk using volatility (dampened for daily EOD moves)
+                // Random walk using volatility (daily EOD swing)
                 const change = (Math.random() * vol * 2) - vol;
-                price = Math.max(0.01, price * (1 + change * 0.15));
+                price = Math.max(0.01, price * (1 + change));
 
                 // Set timestamp to 4:00 PM (market close) on that day
                 const closeTime = new Date(date);
