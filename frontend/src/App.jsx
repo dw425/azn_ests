@@ -56,6 +56,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [marketStatus, setMarketStatus] = useState('OPEN'); // 'OPEN' or 'CLOSED'
   const [lastActivity, setLastActivity] = useState(null);
+  const [marketCheck, setMarketCheck] = useState({ allowed: true, reason: '', status: 'OPEN' });
 
   // --- PENDING QUEUE STATE ---
   const [pendingTx, setPendingTx] = useState([]); 
@@ -131,13 +132,14 @@ function App() {
   const loadDashboard = async (userId) => {
     setDataLoading(true);
     try {
-        const [portRes, holdRes, chartRes, marketRes, settingsRes, activityRes] = await Promise.all([
+        const [portRes, holdRes, chartRes, marketRes, settingsRes, activityRes, marketCheckRes] = await Promise.all([
             fetch(`${API_BASE}/api/portfolio/summary/${userId}`),
             fetch(`${API_BASE}/api/portfolio/holdings/${userId}`),
             fetch(`${API_BASE}/api/portfolio/chart/${userId}`),
             fetch(`${API_BASE}/api/stocks`),
             fetch(`${API_BASE}/api/admin/settings`),
-            fetch(`${API_BASE}/api/portfolio/last-activity/${userId}`)
+            fetch(`${API_BASE}/api/portfolio/last-activity/${userId}`),
+            fetch(`${API_BASE}/api/admin/market-check`)
         ]);
 
         const portData = await portRes.json();
@@ -146,6 +148,7 @@ function App() {
         const marketData = await marketRes.json();
         const settingsData = await settingsRes.json();
         const activityData = await activityRes.json();
+        const marketCheckData = await marketCheckRes.json();
 
         if (!portData.error) setPortfolio(portData);
         setHoldings(Array.isArray(holdData) ? holdData : []);
@@ -159,6 +162,12 @@ function App() {
 
         // Update Last Activity
         if (activityData) setLastActivity(activityData);
+
+        // Update Market Check
+        if (marketCheckData) {
+            setMarketCheck(marketCheckData);
+            setMarketStatus(marketCheckData.status || 'OPEN');
+        }
 
     } catch (err) { console.error("Dashboard Load Error:", err); } 
     finally { setDataLoading(false); }
@@ -412,7 +421,9 @@ function App() {
   const ownedStock = holdings.find(h => h.stock_id === selectedStock?.stock_id);
   const ownedQty = ownedStock ? Number(ownedStock.quantity) : 0;
 
-  if (modalMode === 'BUY') { if (tradeValue > portfolio.cash) { canTrade = false; errorReason = `Insufficient Cash`; } }
+  // Market closed check
+  if (!marketCheck.allowed) { canTrade = false; errorReason = marketCheck.reason; }
+  else if (modalMode === 'BUY') { if (tradeValue > portfolio.cash) { canTrade = false; errorReason = `Insufficient Cash`; } }
   else { if (quantity > ownedQty) { canTrade = false; errorReason = `Insufficient Shares`; } }
 
   return (
@@ -442,10 +453,13 @@ function App() {
                 color: marketStatus === 'OPEN' ? '#2e7d32' : '#c62828', 
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '6px' 
+                gap: '6px',
+                cursor: 'default',
+                title: marketCheck.reason
             }}>
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: marketStatus === 'OPEN' ? '#2e7d32' : '#c62828' }}></div>
                 MARKET {marketStatus}
+                {marketCheck.forced && <span style={{ fontSize: '10px', opacity: 0.7 }}>(forced)</span>}
             </div>
         </div>
 
@@ -733,6 +747,17 @@ function App() {
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
               <div style={{ background: 'white', padding: '30px', borderRadius: '12px', width: '400px', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
                   <h2 style={{marginTop:0, color: modalMode === 'BUY' ? '#28a745' : '#dc3545'}}>{modalMode === 'BUY' ? 'Buy' : 'Sell'} {selectedStock.ticker}</h2>
+                  
+                  {/* Market Closed Warning */}
+                  {!marketCheck.allowed && (
+                      <div style={{ padding: '12px 15px', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '8px', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '20px' }}>🚫</span>
+                          <div>
+                              <div style={{ fontWeight: 'bold', color: '#856404', fontSize: '13px' }}>Trading Suspended</div>
+                              <div style={{ fontSize: '12px', color: '#856404' }}>{marketCheck.reason}</div>
+                          </div>
+                      </div>
+                  )}
                   <div style={{padding:'15px', background:'#f8f9fa', borderRadius:'8px', marginBottom:'20px'}}>
                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}><span>Price:</span><strong>{formatMoney(selectedStock.current_price)}</strong></div>
                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'10px'}}>
