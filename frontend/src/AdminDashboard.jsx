@@ -162,6 +162,14 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const toggleAdmin = async (userId, currentStatus) => {
         try { await fetch(`${API_BASE}/api/auth/users/${userId}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isAdmin: !currentStatus }) }); fetchUsers(); } catch (err) { }
     };
+    const deleteUser = async (userId, username) => {
+        if (!window.confirm(`Delete user "${username}" and ALL their data (holdings, transactions, wallet)? This cannot be undone.`)) return;
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/users/${userId}`, { method: 'DELETE' });
+            if (res.ok) { setMsg(`✅ User "${username}" deleted`); fetchUsers(); }
+            else { const data = await res.json(); setMsg(`❌ ${data.error}`); }
+        } catch (err) { setMsg(`❌ Error: ${err.message}`); }
+    };
     const handleDeleteStock = async (ticker) => { if(!window.confirm('Delete?')) return; try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'DELETE' }); fetchStocks(); } catch(err) {} };
     const handleUpdateStock = async (ticker, newVol, newBase, newSector) => { try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ volatility: newVol, base_price: newBase, sector: newSector }) }); } catch(err) {} };
 
@@ -264,7 +272,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                                     <td style={{ padding: '12px', color: '#333' }}>{u.username}</td>
                                     <td style={{ padding: '12px', color: '#666' }}>{u.full_name || '—'}</td>
                                     <td style={{ padding: '12px', color: '#333' }}><label style={{cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}><input type="checkbox" checked={u.is_admin || false} onChange={() => toggleAdmin(u.user_id, u.is_admin)} /> {u.is_admin ? <span style={{color:'green', fontWeight:'bold'}}>Admin</span> : 'User'}</label></td>
-                                    <td style={{ padding: '12px', color: '#333' }}><button onClick={() => onLoginAs(u)} style={{ padding: '5px 10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Login As</button></td>
+                                    <td style={{ padding: '12px', color: '#333' }}><button onClick={() => onLoginAs(u)} style={{ padding: '5px 10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}>Login As</button><button onClick={() => deleteUser(u.user_id, u.username)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button></td>
                                 </tr>
                             ))}
                         </tbody>
