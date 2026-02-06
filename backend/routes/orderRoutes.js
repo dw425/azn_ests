@@ -1,9 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db'); // <--- SINGLETON
+const { getMarketStatus } = require('../utils/marketCheck');
 
 // BUY STOCK
 router.post('/buy', async (req, res) => {
+    // Check Market Status FIRST
+    const marketCheck = await getMarketStatus();
+    if (!marketCheck.allowed) {
+        return res.status(403).json({ error: `Trade blocked — ${marketCheck.reason}` });
+    }
+
     const { userId, stockId, quantity } = req.body;
     const client = await db.pool.connect();
 
@@ -66,6 +73,12 @@ router.post('/buy', async (req, res) => {
 
 // SELL STOCK
 router.post('/sell', async (req, res) => {
+    // Check Market Status FIRST
+    const marketCheck = await getMarketStatus();
+    if (!marketCheck.allowed) {
+        return res.status(403).json({ error: `Trade blocked — ${marketCheck.reason}` });
+    }
+
     const { userId, stockId, quantity } = req.body;
     const client = await db.pool.connect();
 
