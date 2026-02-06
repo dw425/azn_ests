@@ -162,12 +162,10 @@ router.get('/chart/:userId', async (req, res) => {
         
         const result = await db.query(query, queryParams);
         
-        // 5. Format for Frontend
+        // 5. Format for Frontend — send raw ISO dates, let browser handle timezone
         const chartData = result.rows.map((row, index) => ({
             day: index + 1,
-            date: useHourly 
-                ? new Date(row.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : new Date(row.date).toLocaleDateString(),
+            date: row.date, // Raw timestamp — frontend formats in user's timezone
             value: Number(row.stock_value) + cash
         }));
 
