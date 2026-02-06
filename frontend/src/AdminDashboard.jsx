@@ -28,6 +28,8 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const [newPrice, setNewPrice] = useState('');
     const [newVol, setNewVol] = useState('0.02');
     const [newSector, setNewSector] = useState('Tech');
+    const [newVolume, setNewVolume] = useState('1000000');
+    const [newFullName, setNewFullName] = useState('');
 
     // --- INITIAL DATA LOAD ---
     useEffect(() => {
@@ -134,11 +136,11 @@ function AdminDashboard({ onBack, onLoginAs }) {
     // --- ENTITY MANAGEMENT ---
     const handleCreateUser = async (e) => {
         e.preventDefault();
-        try { const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: `${newUser}@example.com` }) }); if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); } else { setMsg(`❌ Error`); } } catch (err) { setMsg(`❌ Error: ${err.message}`); }
+        try { const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: `${newUser}@example.com`, full_name: newFullName }) }); if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); setNewFullName(''); } else { setMsg(`❌ Error`); } } catch (err) { setMsg(`❌ Error: ${err.message}`); }
     };
     const handleCreateStock = async (e) => {
         e.preventDefault();
-        try { const res = await fetch(`${API_BASE}/api/admin/stocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: newSymbol, name: newName, base_price: parseFloat(newPrice), volatility: parseFloat(newVol), sector: newSector }) }); if (res.ok) { setStockMsg('✅ Added!'); setNewSymbol(''); fetchStocks(); } } catch (err) { }
+        try { const res = await fetch(`${API_BASE}/api/admin/stocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: newSymbol, name: newName, base_price: parseFloat(newPrice), volatility: parseFloat(newVol), sector: newSector, volume: parseInt(newVolume) || 0 }) }); if (res.ok) { setStockMsg('✅ Added!'); setNewSymbol(''); setNewName(''); setNewPrice(''); setNewVolume('1000000'); fetchStocks(); } } catch (err) { }
     };
     const toggleAdmin = async (userId, currentStatus) => {
         try { await fetch(`${API_BASE}/api/auth/users/${userId}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isAdmin: !currentStatus }) }); fetchUsers(); } catch (err) { }
@@ -208,6 +210,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                             <div style={{ marginBottom: '15px' }}><label>Price</label><input type="number" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newPrice} onChange={e => setNewPrice(e.target.value)} required /></div>
                             <div style={{ marginBottom: '15px' }}><label>Sector</label><select style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newSector} onChange={e => setNewSector(e.target.value)}><option value="Tech">Tech</option><option value="Finance">Finance</option><option value="Health">Health</option><option value="Auto">Auto</option><option value="Energy">Energy</option><option value="Crypto">Crypto</option></select></div>
                             <div style={{ marginBottom: '15px' }}><label>Volatility</label><input type="number" step="0.01" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newVol} onChange={e => setNewVol(e.target.value)} required /></div>
+                            <div style={{ marginBottom: '15px' }}><label>Volume (Total Shares)</label><input type="number" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newVolume} onChange={e => setNewVolume(e.target.value)} placeholder="e.g. 1000000" required /></div>
                             <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Add Stock</button>
                         </form>
                     </div>
@@ -215,13 +218,14 @@ function AdminDashboard({ onBack, onLoginAs }) {
                         <h3>Current Market ({stocks.length})</h3>
                         <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead><tr style={{ textAlign: 'left', background: '#f8f9fa' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Symbol</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Price</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Vol</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Actions</th></tr></thead>
+                                <thead><tr style={{ textAlign: 'left', background: '#f8f9fa' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Symbol</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Price</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Vol</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Volume</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Actions</th></tr></thead>
                                 <tbody>
                                     {stocks.map(s => (
                                         <tr key={s.ticker} style={{ borderBottom: '1px solid #eee' }}>
                                             <td style={{ padding: '12px', color: '#333' }}><strong>{s.ticker}</strong><br/><span style={{fontSize:'12px', color:'#666'}}>{s.name}</span></td>
                                             <td style={{ padding: '12px', color: '#333' }}>${s.current_price}</td>
                                             <td style={{ padding: '12px', color: '#333' }}><input type="number" step="0.01" defaultValue={s.volatility} onBlur={(e) => handleUpdateStock(s.ticker, e.target.value, s.base_price, s.sector)} style={{width: '60px', padding: '5px', border:'1px solid #ddd', borderRadius:'4px'}} /></td>
+                                            <td style={{ padding: '12px', color: '#333', fontSize: '12px' }}>{s.volume ? Number(s.volume).toLocaleString() : '0'}</td>
                                             <td style={{ padding: '12px', color: '#333' }}><button onClick={() => handleDeleteStock(s.ticker)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button></td>
                                         </tr>
                                     ))}
@@ -236,11 +240,12 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                     <h3>User Management</h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead><tr style={{ background: '#f8f9fa', textAlign: 'left' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Username</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Role</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Action</th></tr></thead>
+                        <thead><tr style={{ background: '#f8f9fa', textAlign: 'left' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Username</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Full Name</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Role</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Action</th></tr></thead>
                         <tbody>
                             {users.map(u => (
                                 <tr key={u.user_id} style={{ borderBottom: '1px solid #eee' }}>
                                     <td style={{ padding: '12px', color: '#333' }}>{u.username}</td>
+                                    <td style={{ padding: '12px', color: '#666' }}>{u.full_name || '—'}</td>
                                     <td style={{ padding: '12px', color: '#333' }}><label style={{cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}><input type="checkbox" checked={u.is_admin || false} onChange={() => toggleAdmin(u.user_id, u.is_admin)} /> {u.is_admin ? <span style={{color:'green', fontWeight:'bold'}}>Admin</span> : 'User'}</label></td>
                                     <td style={{ padding: '12px', color: '#333' }}><button onClick={() => onLoginAs(u)} style={{ padding: '5px 10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Login As</button></td>
                                 </tr>
@@ -254,6 +259,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', maxWidth:'500px' }}>
                     <h3>Create New User</h3>
                     <form onSubmit={handleCreateUser}>
+                        <div style={{ marginBottom: '15px' }}><label>Full Name</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newFullName} onChange={e => setNewFullName(e.target.value)} placeholder="John Smith" required /></div>
                         <div style={{ marginBottom: '15px' }}><label>Username</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newUser} onChange={e => setNewUser(e.target.value)} required /></div>
                         <div style={{ marginBottom: '15px' }}><label>Password</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newPass} onChange={e => setNewPass(e.target.value)} required /></div>
                         <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Create User</button>
