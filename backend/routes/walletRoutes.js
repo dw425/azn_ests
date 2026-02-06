@@ -94,4 +94,21 @@ router.post('/add', async (req, res) => {
     }
 });
 
+// 3. GET Wallet Transaction History
+router.get('/history/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const result = await db.query(`
+            SELECT wt.transaction_id, wt.transaction_type, wt.amount, wt.created_at
+            FROM wallet_transactions wt
+            JOIN wallets w ON wt.wallet_id = w.wallet_id
+            WHERE w.user_id = $1
+            ORDER BY wt.created_at DESC
+        `, [userId]);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
