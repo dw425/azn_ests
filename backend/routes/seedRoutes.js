@@ -122,87 +122,92 @@ router.post('/seed', async (req, res) => {
     }
 });
 
-// 2. HISTORICAL PRICE GENERATOR (With Volatility Support)
+// 2. HISTORICAL PRICE BACKFILL (1 Year of EOD Close Prices)
+// Generates one end-of-day close price per trading day per stock
+// Walks backwards from current_price using each stock's volatility
 router.post('/generate-prices', async (req, res) => {
     const client = await db.pool.connect(); 
     try {
-        const { startMonth, endMonth, year } = req.body;
-        const targetYear = year || 2026;
-        const sMonth = startMonth !== undefined ? startMonth : 0; // Default Jan
-        const eMonth = endMonth !== undefined ? endMonth : 11; // Default Dec
+        const { days } = req.body;
+        const backfillDays = days || 365;
 
-        console.log(`Starting Generator for ${targetYear}...`);
+        console.log(`Starting ${backfillDays}-day EOD backfill from current prices...`);
 
-        // FIX: Added 'volatility' to the SELECT query
+        // Get all stocks with current prices and volatility
         const stockRes = await client.query('SELECT stock_id, current_price, ticker, volatility FROM stocks');
         const stocks = stockRes.rows;
 
+        // Clear old stock_prices to start fresh
+        await client.query('TRUNCATE TABLE stock_prices RESTART IDENTITY');
+
         let totalRecords = 0;
-        
-        for (let month = sMonth; month <= eMonth; month++) {
-            const daysInMonth = new Date(targetYear, month + 1, 0).getDate();
+        const now = new Date();
 
-            for (let day = 1; day <= daysInMonth; day++) {
-                const date = new Date(targetYear, month, day);
+        // For each stock, walk BACKWARDS from current_price
+        for (const stock of stocks) {
+            let price = Number(stock.current_price);
+            const vol = Number(stock.volatility) || 0.02;
+            const pricePoints = [];
+
+            // Walk backwards day by day
+            for (let d = backfillDays; d >= 1; d--) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - d);
+
+                // Skip weekends
                 const dayOfWeek = date.getDay();
-                if (dayOfWeek === 0 || dayOfWeek === 6) continue; // Skip Weekends
+                if (dayOfWeek === 0 || dayOfWeek === 6) continue;
 
-                let currentHour = 9; // Market Open 9:30 (Simulated start 9:00)
-                let currentMinute = 30;
+                // Random walk using volatility (dampened for daily EOD moves)
+                const change = (Math.random() * vol * 2) - vol;
+                price = Math.max(0.01, price * (1 + change * 0.15));
 
+                // Set timestamp to 4:00 PM (market close) on that day
+                const closeTime = new Date(date);
+                closeTime.setHours(16, 0, 0, 0);
+
+                pricePoints.push({ 
+                    stockId: stock.stock_id, 
+                    price: parseFloat(price.toFixed(2)), 
+                    timestamp: closeTime.toISOString() 
+                });
+            }
+
+            // Batch insert for this stock (chunk to avoid param limits)
+            const CHUNK_SIZE = 500;
+            for (let i = 0; i < pricePoints.length; i += CHUNK_SIZE) {
+                const chunk = pricePoints.slice(i, i + CHUNK_SIZE);
                 const values = [];
                 const placeholders = [];
                 let paramIndex = 1;
 
-                // Simulate 9:30 AM to 4:00 PM (16:00)
-                while (currentHour < 16 || (currentHour === 16 && currentMinute === 0)) {
-                    const timeStr = `${targetYear}-${month + 1}-${day} ${currentHour}:${currentMinute}:00`;
-
-                    stocks.forEach(stock => {
-                        const currentPrice = Number(stock.current_price);
-                        const vol = Number(stock.volatility) || 0.02; // Use DB Volatility
-                        
-                        // FIX: Pass volatility to the math function
-                        // Assuming getNextPrice(price, volatility) signature
-                        const newPrice = getNextPrice(currentPrice, vol); 
-                        
-                        stock.current_price = newPrice; 
-
-                        values.push(stock.stock_id, newPrice, timeStr);
-                        placeholders.push(`($${paramIndex}, $${paramIndex+1}, $${paramIndex+2})`);
-                        paramIndex += 3;
-                    });
-
-                    currentMinute += 30; 
-                    if (currentMinute >= 60) {
-                        currentMinute -= 60;
-                        currentHour++;
-                    }
+                for (const point of chunk) {
+                    values.push(point.stockId, point.price, point.timestamp);
+                    placeholders.push(`($${paramIndex}, $${paramIndex+1}, $${paramIndex+2})`);
+                    paramIndex += 3;
                 }
 
-                if (placeholders.length > 0) {
-                    const query = `
-                        INSERT INTO stock_prices (stock_id, price, recorded_at) 
-                        VALUES ${placeholders.join(',')}
-                        ON CONFLICT DO NOTHING
-                    `;
-                    await client.query(query, values);
-                    totalRecords += (values.length / 3);
-                }
+                await client.query(
+                    `INSERT INTO stock_prices (stock_id, price, recorded_at) VALUES ${placeholders.join(',')} ON CONFLICT DO NOTHING`,
+                    values
+                );
             }
-            console.log(`Generated Month ${month + 1}`);
+
+            totalRecords += pricePoints.length;
+            console.log(`  ✅ ${stock.ticker}: ${pricePoints.length} EOD close prices`);
         }
 
-        // Save final prices to the stocks table so the Dashboard shows the latest value
-        for (const stock of stocks) {
-            await client.query('UPDATE stocks SET current_price = $1 WHERE stock_id = $2', 
-                [stock.current_price, stock.stock_id]);
-        }
+        // Reset daily tracking to current prices (clean baseline)
+        await client.query(`
+            UPDATE stocks SET 
+                daily_open = current_price, 
+                day_high = current_price, 
+                day_low = current_price
+        `);
 
         res.json({ 
             success: true, 
-            message: `Generated ${totalRecords} records.`, 
-            last_status: "Volatility applied. Users created."
+            message: `Backfilled ${totalRecords} EOD records across ${stocks.length} stocks (${backfillDays} days).`
         });
 
     } catch (err) {
