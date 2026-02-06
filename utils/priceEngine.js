@@ -81,10 +81,18 @@ const updatePrices = async () => {
             );
         }
 
-        // H. HOURLY SNAPSHOT: Write current prices to stock_prices once per hour
-        //    This builds real historical data for charts and close price lookups
-        if (lastSnapshotHour !== currentHour) {
-            const snapshotTime = new Date().toISOString();
+        // H. SNAPSHOT EVERY 5 MINUTES: Write current prices to stock_prices
+        //    This builds intraday data for the 1D chart view
+        const now = new Date();
+        const minuteSlot = Math.floor(now.getMinutes() / 5); // 0-11 (twelve 5-min slots per hour)
+        const snapshotKey = `${now.getHours()}-${minuteSlot}`;
+        
+        if (lastSnapshotHour !== snapshotKey) {
+            // Round to nearest 5-min mark for clean timestamps
+            const snapshotTime = new Date(now);
+            snapshotTime.setMinutes(minuteSlot * 5, 0, 0);
+            const snapshotISO = snapshotTime.toISOString();
+            
             const freshPrices = await pool.query('SELECT stock_id, current_price FROM stocks');
             
             for (let stock of freshPrices.rows) {
@@ -92,12 +100,12 @@ const updatePrices = async () => {
                     `INSERT INTO stock_prices (stock_id, price, recorded_at) 
                      VALUES ($1, $2, $3) 
                      ON CONFLICT (stock_id, recorded_at) DO NOTHING`,
-                    [stock.stock_id, stock.current_price, snapshotTime]
+                    [stock.stock_id, stock.current_price, snapshotISO]
                 );
             }
             
-            lastSnapshotHour = currentHour;
-            console.log(`📸 Hourly snapshot saved at ${snapshotTime} — ${freshPrices.rows.length} stocks recorded`);
+            lastSnapshotHour = snapshotKey;
+            console.log(`📸 Snapshot saved at ${snapshotISO} — ${freshPrices.rows.length} stocks recorded`);
         }
 
     } catch (err) {
@@ -107,7 +115,7 @@ const updatePrices = async () => {
 
 // 3. The Function to Start the Timer
 const startEngine = () => {
-    console.log("🚀 Stock Price Engine Started... (Daily Tracking + Hourly Snapshots Enabled)");
+    console.log("🚀 Stock Price Engine Started... (Daily Tracking + 5-Min Snapshots Enabled)");
     
     // Run the updatePrices function every 10 seconds
     setInterval(updatePrices, 10000); 
