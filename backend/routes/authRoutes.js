@@ -114,4 +114,29 @@ router.put('/users/:id/role', async (req, res) => {
     }
 });
 
+// DELETE USER (Admin) — removes user and all related data
+router.delete('/users/:id', async (req, res) => {
+    const client = await db.pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { id } = req.params;
+
+        // Delete in order of dependencies
+        await client.query('DELETE FROM transactions WHERE user_id = $1', [id]);
+        await client.query('DELETE FROM holdings WHERE user_id = $1', [id]);
+        await client.query('DELETE FROM wallet_transactions WHERE wallet_id IN (SELECT wallet_id FROM wallets WHERE user_id = $1)', [id]);
+        await client.query('DELETE FROM wallets WHERE user_id = $1', [id]);
+        await client.query('DELETE FROM users WHERE user_id = $1', [id]);
+
+        await client.query('COMMIT');
+        res.json({ message: 'User deleted successfully' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error("Delete User Error:", err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
