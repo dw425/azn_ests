@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const API_BASE = 'https://stock-trading-api-fcp5.onrender.com';
 
@@ -19,6 +19,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
         const dayName = days[d.getUTCDay()];
         return `${dayName}, ${month}/${day}/${year} ${hours}:${mins}:${secs} ${ampm}`;
     };
+
     // --- STATE MANAGEMENT ---
     const [activeTab, setActiveTab] = useState('stocks'); 
     const [users, setUsers] = useState([]);
@@ -26,11 +27,20 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const [settings, setSettings] = useState({ market_status: 'OPEN', simulated_date: new Date().toISOString(), market_open_time: '09:30', market_close_time: '16:00', force_override: false, holidays: '[]' });
     const [marketCheckResult, setMarketCheckResult] = useState(null);
     
+    // Time Mode: 'realtime' = browser clock (default), 'custom' = time machine / manual
+    const [timeMode, setTimeMode] = useState('realtime');
+    const [realTimeTick, setRealTimeTick] = useState(new Date().toISOString());
+    const timeSyncInterval = useRef(null);
+    const settingsRef = useRef(settings);
+
+    // Keep settingsRef in sync so the interval callback always has fresh settings
+    useEffect(() => { settingsRef.current = settings; }, [settings]);
+
     // UI State
     const [msg, setMsg] = useState('');
     const [stockMsg, setStockMsg] = useState('');
     const [sqlOutput, setSqlOutput] = useState(null); 
-    const [customDate, setCustomDate] = useState(''); // For Calendar Input
+    const [customDate, setCustomDate] = useState('');
 
     // Holiday Form
     const [newHolidayDate, setNewHolidayDate] = useState('');
@@ -50,11 +60,57 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- INITIAL DATA LOAD ---
     useEffect(() => {
-        fetchSettings(); // Always get system status
+        fetchSettings();
         fetchMarketCheck();
         if (activeTab === 'users') fetchUsers();
         if (activeTab === 'stocks') fetchStocks();
     }, [activeTab]);
+
+    // --- On first load, detect if stored time is close to real time ---
+    useEffect(() => {
+        const checkInitialMode = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/settings`);
+                const data = await res.json();
+                setSettings(data);
+                const stored = new Date(data.simulated_date).getTime();
+                const real = Date.now();
+                const diffMinutes = Math.abs(stored - real) / 60000;
+                if (diffMinutes > 5) {
+                    setTimeMode('custom');
+                } else {
+                    setTimeMode('realtime');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        };
+        checkInitialMode();
+    }, []);
+
+    // --- REAL-TIME SYNC: keep simulated_date in sync with browser clock ---
+    useEffect(() => {
+        if (timeMode === 'realtime') {
+            // Immediately sync once
+            const now = new Date().toISOString();
+            setRealTimeTick(now);
+            syncToRealTimeSilent(now);
+            // Then sync every 30 seconds
+            timeSyncInterval.current = setInterval(() => {
+                const nowInner = new Date().toISOString();
+                setRealTimeTick(nowInner);
+                syncToRealTimeSilent(nowInner);
+            }, 30000);
+        } else {
+            if (timeSyncInterval.current) {
+                clearInterval(timeSyncInterval.current);
+                timeSyncInterval.current = null;
+            }
+        }
+        return () => {
+            if (timeSyncInterval.current) clearInterval(timeSyncInterval.current);
+        };
+    }, [timeMode]);
 
     // --- API HANDLERS ---
     const fetchUsers = async () => {
@@ -76,24 +132,54 @@ function AdminDashboard({ onBack, onLoginAs }) {
             const res = await fetch(`${API_BASE}/api/admin/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...settings, ...updates })
+                body: JSON.stringify({ ...settingsRef.current, ...updates })
             });
             const data = await res.json();
             setSettings(data);
             setMsg('✅ System Settings Updated');
-            // Re-check market status after any settings change
             fetchMarketCheck();
         } catch (err) { setMsg('❌ Error updating settings'); }
     };
 
+    // Silent sync — no toast, used by the interval
+    const syncToRealTimeSilent = async (isoStr) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...settingsRef.current, simulated_date: isoStr || new Date().toISOString() })
+            });
+            const data = await res.json();
+            setSettings(data);
+            fetchMarketCheck();
+        } catch (err) { console.error('Silent sync error:', err); }
+    };
+
+    // User-triggered sync to real time
+    const syncToRealTime = () => {
+        const now = new Date().toISOString();
+        setRealTimeTick(now);
+        updateSettings({ simulated_date: now });
+    };
+
+    // "Actual Time" button handler
+    const handleActualTime = () => {
+        setTimeMode('realtime');
+        const now = new Date().toISOString();
+        setRealTimeTick(now);
+        updateSettings({ simulated_date: now });
+        setMsg('✅ Switched to Actual Time — market clock synced to your browser');
+    };
+
     const handleDateChange = () => {
-        if(customDate) {
-            // Store raw datetime-local value as UTC — what admin picks IS the market time
+        if (customDate) {
+            setTimeMode('custom');
             updateSettings({ simulated_date: customDate + ':00.000Z' });
         }
     };
 
     const advanceTime = (hours) => {
+        setTimeMode('custom');
         const currentDate = new Date(settings.simulated_date || Date.now());
         currentDate.setUTCHours(currentDate.getUTCHours() + hours);
         updateSettings({ simulated_date: currentDate.toISOString() });
@@ -101,13 +187,12 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- HOLIDAY MANAGEMENT ---
     const getHolidays = () => {
-        try { return JSON.parse(settings.holidays || '[]'); } catch(e) { return []; }
+        try { return JSON.parse(settings.holidays || '[]'); } catch (e) { return []; }
     };
 
     const addHoliday = () => {
         if (!newHolidayDate) return;
         const holidays = getHolidays();
-        // Prevent duplicates
         if (holidays.find(h => h.date === newHolidayDate)) {
             setMsg('❌ Holiday already exists for that date');
             return;
@@ -126,13 +211,13 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- HISTORY GENERATOR ---
     const handleGenerateHistory = async () => {
-        if(!window.confirm("This will regenerate 1 year of end-of-day close prices for ALL stocks in the market. Existing price history will be replaced. Continue?")) return;
+        if (!window.confirm("This will regenerate 1 year of end-of-day close prices for ALL stocks in the market. Existing price history will be replaced. Continue?")) return;
         setStockMsg('⏳ Generating 1-year price history for all stocks... Please wait...');
         try {
-            const res = await fetch(`${API_BASE}/api/admin/generate-prices`, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ days: 365 }) 
+            const res = await fetch(`${API_BASE}/api/admin/generate-prices`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ days: 365 })
             });
             const data = await res.json();
             if (res.ok) setStockMsg(`✅ ${data.message}`); else setStockMsg(`❌ Error: ${data.error}`);
@@ -141,24 +226,30 @@ function AdminDashboard({ onBack, onLoginAs }) {
 
     // --- SQL TOOL ---
     const runQuickSql = async (query) => {
-        try { 
-            const res = await fetch(`${API_BASE}/api/admin/run-sql`, { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ query }) 
-            }); 
-            setSqlOutput(await res.json()); 
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/run-sql`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query })
+            });
+            setSqlOutput(await res.json());
         } catch (err) { setSqlOutput({ error: err.message }); }
     };
 
     // --- ENTITY MANAGEMENT ---
     const handleCreateUser = async (e) => {
         e.preventDefault();
-        try { const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: newEmail || `${newUser}@example.com`, full_name: newFullName }) }); if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); setNewFullName(''); setNewEmail(''); } else { setMsg(`❌ Error`); } } catch (err) { setMsg(`❌ Error: ${err.message}`); }
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: newEmail || `${newUser}@example.com`, full_name: newFullName }) });
+            if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); setNewFullName(''); setNewEmail(''); } else { setMsg(`❌ Error`); }
+        } catch (err) { setMsg(`❌ Error: ${err.message}`); }
     };
     const handleCreateStock = async (e) => {
         e.preventDefault();
-        try { const res = await fetch(`${API_BASE}/api/admin/stocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: newSymbol, name: newName, base_price: parseFloat(newPrice), volatility: parseFloat(newVol), sector: newSector, volume: parseInt(newVolume) || 0 }) }); if (res.ok) { setStockMsg('✅ Added!'); setNewSymbol(''); setNewName(''); setNewPrice(''); setNewVolume('1000000'); fetchStocks(); } } catch (err) { }
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/stocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: newSymbol, name: newName, base_price: parseFloat(newPrice), volatility: parseFloat(newVol), sector: newSector, volume: parseInt(newVolume) || 0 }) });
+            if (res.ok) { setStockMsg('✅ Added!'); setNewSymbol(''); setNewName(''); setNewPrice(''); setNewVolume('1000000'); fetchStocks(); }
+        } catch (err) { }
     };
     const toggleAdmin = async (userId, currentStatus) => {
         try { await fetch(`${API_BASE}/api/auth/users/${userId}/role`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isAdmin: !currentStatus }) }); fetchUsers(); } catch (err) { }
@@ -171,8 +262,8 @@ function AdminDashboard({ onBack, onLoginAs }) {
             else { const data = await res.json(); setMsg(`❌ ${data.error}`); }
         } catch (err) { setMsg(`❌ Error: ${err.message}`); }
     };
-    const handleDeleteStock = async (ticker) => { if(!window.confirm('Delete?')) return; try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'DELETE' }); fetchStocks(); } catch(err) {} };
-    const handleUpdateStock = async (ticker, newVol, newBase, newSector) => { try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ volatility: newVol, base_price: newBase, sector: newSector }) }); } catch(err) {} };
+    const handleDeleteStock = async (ticker) => { if (!window.confirm('Delete?')) return; try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'DELETE' }); fetchStocks(); } catch (err) { } };
+    const handleUpdateStock = async (ticker, newVol, newBase, newSector) => { try { await fetch(`${API_BASE}/api/admin/stocks/${ticker}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ volatility: newVol, base_price: newBase, sector: newSector }) }); } catch (err) { } };
 
     // --- RENDER ---
     return (
@@ -180,34 +271,41 @@ function AdminDashboard({ onBack, onLoginAs }) {
             {/* TOP HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
                 <div>
-                    <h1 style={{ margin: '0 0 10px 0', color: '#333' }}>🔒 Admin<span style={{color:'#d32f2f'}}>Panel</span></h1>
-                    <div style={{ background:'white', padding:'10px 20px', borderRadius:'8px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)', display:'flex', alignItems:'center', gap:'15px' }}>
-                        <div style={{textAlign:'right'}}>
-                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Market Status</div>
-                            <div style={{fontWeight:'bold', color: settings.market_status==='OPEN'?'#28a745':'#dc3545'}}>{settings.market_status}</div>
+                    <h1 style={{ margin: '0 0 10px 0', color: '#333' }}>🔒 Admin<span style={{ color: '#d32f2f' }}>Panel</span></h1>
+                    <div style={{ background: 'white', padding: '10px 20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>Market Status</div>
+                            <div style={{ fontWeight: 'bold', color: settings.market_status === 'OPEN' ? '#28a745' : '#dc3545' }}>{settings.market_status}</div>
                         </div>
-                        <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                        <div style={{ height: '30px', width: '1px', background: '#eee' }}></div>
                         <div>
-                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Mode</div>
-                            <div style={{fontWeight:'bold', fontSize:'13px', color: settings.force_override ? '#d39e00' : '#007bff'}}>{settings.force_override ? '🔒 Force Override' : '🤖 Auto Schedule'}</div>
+                            <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>Mode</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '13px', color: settings.force_override ? '#d39e00' : '#007bff' }}>{settings.force_override ? '🔒 Force Override' : '🤖 Auto Schedule'}</div>
                         </div>
-                        <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                        <div style={{ height: '30px', width: '1px', background: '#eee' }}></div>
                         <div>
-                            <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Simulated Time</div>
-                            <div style={{fontWeight:'bold', fontSize:'14px'}}>{formatMarketTime(settings.simulated_date)}</div>
+                            <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>Clock</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '13px', color: timeMode === 'realtime' ? '#28a745' : '#e67e22' }}>
+                                {timeMode === 'realtime' ? '🟢 Actual Time' : '🟠 Time Machine'}
+                            </div>
+                        </div>
+                        <div style={{ height: '30px', width: '1px', background: '#eee' }}></div>
+                        <div>
+                            <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>Simulated Time</div>
+                            <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{formatMarketTime(settings.simulated_date)}</div>
                         </div>
                         {marketCheckResult && (
                             <>
-                                <div style={{height:'30px', width:'1px', background:'#eee'}}></div>
+                                <div style={{ height: '30px', width: '1px', background: '#eee' }}></div>
                                 <div>
-                                    <div style={{fontSize:'10px', color:'#666', textTransform:'uppercase'}}>Reason</div>
-                                    <div style={{fontSize:'12px', color:'#555'}}>{marketCheckResult.reason}</div>
+                                    <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' }}>Reason</div>
+                                    <div style={{ fontSize: '12px', color: '#555' }}>{marketCheckResult.reason}</div>
                                 </div>
                             </>
                         )}
                     </div>
                 </div>
-                <div style={{display:'flex', gap:'10px', flexDirection:'column', alignItems:'flex-end'}}>
+                <div style={{ display: 'flex', gap: '10px', flexDirection: 'column', alignItems: 'flex-end' }}>
                     <button onClick={onBack} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>← Back to Dashboard</button>
                 </div>
             </div>
@@ -223,7 +321,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <button onClick={() => setActiveTab('sql')} style={{ padding: '10px 20px', background: activeTab === 'sql' ? '#333' : 'none', color: activeTab === 'sql' ? 'white' : '#666', border: 'none', borderRadius: '4px 4px 0 0', cursor: 'pointer' }}>🛠 SQL Tool</button>
             </div>
 
-            {/* TAB CONTENT */}
+            {/* ===================== TAB CONTENT ===================== */}
 
             {activeTab === 'stocks' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
@@ -238,8 +336,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                             <div style={{ marginBottom: '15px' }}><label>Volume (Total Shares)</label><input type="number" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newVolume} onChange={e => setNewVolume(e.target.value)} placeholder="e.g. 1000000" required /></div>
                             <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Add Stock</button>
                         </form>
-                        
-                        {/* Generate History Section */}
+
                         <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '2px solid #e1e4e8' }}>
                             <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#333' }}>📊 Price History</h4>
                             <p style={{ fontSize: '12px', color: '#666', marginBottom: '12px', lineHeight: '1.4' }}>
@@ -257,9 +354,9 @@ function AdminDashboard({ onBack, onLoginAs }) {
                                 <tbody>
                                     {stocks.map(s => (
                                         <tr key={s.ticker} style={{ borderBottom: '1px solid #eee' }}>
-                                            <td style={{ padding: '12px', color: '#333' }}><strong>{s.ticker}</strong><br/><span style={{fontSize:'12px', color:'#666'}}>{s.name}</span></td>
+                                            <td style={{ padding: '12px', color: '#333' }}><strong>{s.ticker}</strong><br /><span style={{ fontSize: '12px', color: '#666' }}>{s.name}</span></td>
                                             <td style={{ padding: '12px', color: '#333' }}>${s.current_price}</td>
-                                            <td style={{ padding: '12px', color: '#333' }}><input type="number" step="0.01" defaultValue={s.volatility} onBlur={(e) => handleUpdateStock(s.ticker, e.target.value, s.base_price, s.sector)} style={{width: '60px', padding: '5px', border:'1px solid #ddd', borderRadius:'4px'}} /></td>
+                                            <td style={{ padding: '12px', color: '#333' }}><input type="number" step="0.01" defaultValue={s.volatility} onBlur={(e) => handleUpdateStock(s.ticker, e.target.value, s.base_price, s.sector)} style={{ width: '60px', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} /></td>
                                             <td style={{ padding: '12px', color: '#333', fontSize: '12px' }}>{s.volume ? Number(s.volume).toLocaleString() : '0'}</td>
                                             <td style={{ padding: '12px', color: '#333' }}><button onClick={() => handleDeleteStock(s.ticker)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button></td>
                                         </tr>
@@ -282,7 +379,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                                     <td style={{ padding: '12px', color: '#333' }}>{u.username}</td>
                                     <td style={{ padding: '12px', color: '#666' }}>{u.full_name || '—'}</td>
                                     <td style={{ padding: '12px', color: '#666', fontSize: '13px' }}>{u.email || '—'}</td>
-                                    <td style={{ padding: '12px', color: '#333' }}><label style={{cursor: u.username === 'Admin' ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:'5px'}}><input type="checkbox" checked={u.is_admin || false} disabled={u.username === 'Admin'} onChange={() => toggleAdmin(u.user_id, u.is_admin)} /> {u.is_admin ? <span style={{color:'green', fontWeight:'bold'}}>Admin</span> : 'User'}</label></td>
+                                    <td style={{ padding: '12px', color: '#333' }}><label style={{ cursor: u.username === 'Admin' ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}><input type="checkbox" checked={u.is_admin || false} disabled={u.username === 'Admin'} onChange={() => toggleAdmin(u.user_id, u.is_admin)} /> {u.is_admin ? <span style={{ color: 'green', fontWeight: 'bold' }}>Admin</span> : 'User'}</label></td>
                                     <td style={{ padding: '12px', color: '#333' }}><button onClick={() => onLoginAs(u)} style={{ padding: '5px 10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}>Login As</button>{u.username !== 'Admin' && <button onClick={() => deleteUser(u.user_id, u.username)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button>}</td>
                                 </tr>
                             ))}
@@ -292,7 +389,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
             )}
 
             {activeTab === 'create' && (
-                <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', maxWidth:'500px' }}>
+                <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', maxWidth: '500px' }}>
                     <h3>Create New User</h3>
                     <form onSubmit={handleCreateUser}>
                         <div style={{ marginBottom: '15px' }}><label>Full Name</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newFullName} onChange={e => setNewFullName(e.target.value)} placeholder="John Smith" required /></div>
@@ -304,18 +401,19 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 </div>
             )}
 
+            {/* ===================== SYSTEM CONTROL TAB ===================== */}
             {activeTab === 'settings' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    
+
                     {/* LEFT COLUMN: Market Controls */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        
+
                         {/* Force Override Toggle */}
                         <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderTop: settings.force_override ? '4px solid #ffc107' : '4px solid #007bff' }}>
                             <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>Market Mode</h3>
                             <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>
-                                {settings.force_override 
-                                    ? '🔒 Force Override — You control the market status manually.' 
+                                {settings.force_override
+                                    ? '🔒 Force Override — You control the market status manually.'
                                     : '🤖 Auto Schedule — Market opens/closes based on hours, weekdays, and holidays.'}
                             </p>
                             <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
@@ -323,7 +421,6 @@ function AdminDashboard({ onBack, onLoginAs }) {
                                 <button onClick={() => updateSettings({ force_override: true })} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', background: settings.force_override ? '#ffc107' : '#eee', color: settings.force_override ? '#000' : '#999' }}>🔒 Force Override</button>
                             </div>
 
-                            {/* Show OPEN/CLOSED buttons only when force override is on */}
                             {settings.force_override && (
                                 <div style={{ display: 'flex', gap: '10px' }}>
                                     <button onClick={() => updateSettings({ market_status: 'OPEN' })} style={{ flex: 1, padding: '16px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', background: settings.market_status === 'OPEN' ? '#28a745' : '#eee', color: settings.market_status === 'OPEN' ? 'white' : '#999' }}>✅ FORCE OPEN</button>
@@ -352,22 +449,49 @@ function AdminDashboard({ onBack, onLoginAs }) {
                             </div>
                         </div>
 
-                        {/* Time Machine */}
-                        <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                            <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>🕐 Time Machine</h3>
-                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>Jump forward in simulated time, or pick a specific date.</p>
-                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                                <button onClick={() => advanceTime(1)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Hour</button>
-                                <button onClick={() => advanceTime(24)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Day</button>
-                                <button onClick={() => advanceTime(168)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Week</button>
+                        {/* Clock Mode & Time Machine */}
+                        <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderTop: timeMode === 'realtime' ? '4px solid #28a745' : '4px solid #e67e22' }}>
+                            <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>🕐 Market Clock</h3>
+                            <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>
+                                {timeMode === 'realtime'
+                                    ? '🟢 Using your browser\'s actual date & time. The market will open and close based on the real clock.'
+                                    : '🟠 Using a custom time. The market schedule is based on the time you set below.'}
+                            </p>
+
+                            {/* Clock Mode Toggle */}
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                                <button onClick={handleActualTime} style={{ flex: 1, padding: '14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', background: timeMode === 'realtime' ? '#28a745' : '#eee', color: timeMode === 'realtime' ? 'white' : '#999' }}>🟢 Actual Time</button>
+                                <button onClick={() => { setTimeMode('custom'); setMsg('🟠 Switched to Time Machine — use controls below to set a custom time'); }} style={{ flex: 1, padding: '14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', background: timeMode === 'custom' ? '#e67e22' : '#eee', color: timeMode === 'custom' ? 'white' : '#999' }}>🟠 Time Machine</button>
                             </div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Jump to Specific Date & Time</label>
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <input type="datetime-local" value={customDate} onChange={(e) => setCustomDate(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px' }} />
-                                <button onClick={handleDateChange} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Set Date</button>
+
+                            {/* Current Time Display */}
+                            <div style={{ padding: '12px 16px', background: timeMode === 'realtime' ? '#d4edda' : '#fff3cd', borderRadius: '6px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase', marginBottom: '2px' }}>
+                                        {timeMode === 'realtime' ? 'Live Clock (syncs every 30s)' : 'Custom Time (frozen)'}
+                                    </div>
+                                    <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>
+                                        {formatMarketTime(settings.simulated_date)}
+                                    </div>
+                                </div>
+                                {timeMode === 'realtime' && (
+                                    <button onClick={syncToRealTime} style={{ padding: '6px 14px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>🔄 Sync Now</button>
+                                )}
                             </div>
-                            <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>
-                                Current simulated time: <strong>{formatMarketTime(settings.simulated_date)}</strong>
+
+                            {/* Time Machine Controls — greyed out when in real-time mode */}
+                            <div style={{ opacity: timeMode === 'custom' ? 1 : 0.4, pointerEvents: timeMode === 'custom' ? 'auto' : 'none' }}>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Quick Jump</label>
+                                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                                    <button onClick={() => advanceTime(1)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Hour</button>
+                                    <button onClick={() => advanceTime(24)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Day</button>
+                                    <button onClick={() => advanceTime(168)} style={{ flex: 1, padding: '10px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+1 Week</button>
+                                </div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px', textTransform: 'uppercase' }}>Jump to Specific Date & Time</label>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <input type="datetime-local" value={customDate} onChange={(e) => setCustomDate(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '14px' }} />
+                                    <button onClick={handleDateChange} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Set Date</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -376,7 +500,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                     <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', alignSelf: 'start' }}>
                         <h3 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>📅 Market Holidays</h3>
                         <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>The market will be automatically closed on these dates (when in Auto Schedule mode).</p>
-                        
+
                         {/* Add Holiday Form */}
                         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', padding: '15px', background: '#f8f9fa', borderRadius: '8px' }}>
                             <div style={{ flex: 1 }}>
@@ -451,20 +575,20 @@ function AdminDashboard({ onBack, onLoginAs }) {
             )}
 
             {activeTab === 'sql' && (
-                <div style={{display:'grid', gridTemplateColumns:'1fr 3fr', gap:'20px'}}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '20px' }}>
                     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                         <h4>Quick Actions</h4>
-                        <button onClick={() => runQuickSql('SELECT * FROM users ORDER BY created_at DESC LIMIT 10')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width:'100%', marginBottom:'10px' }}>Show Recent Users</button>
-                        <button onClick={() => runQuickSql('SELECT * FROM stocks')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width:'100%', marginBottom:'10px' }}>Show All Stocks</button>
-                        <button onClick={() => runQuickSql('SELECT * FROM holdings')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width:'100%', marginBottom:'10px' }}>Show All Holdings</button>
+                        <button onClick={() => runQuickSql('SELECT * FROM users ORDER BY created_at DESC LIMIT 10')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '100%', marginBottom: '10px' }}>Show Recent Users</button>
+                        <button onClick={() => runQuickSql('SELECT * FROM stocks')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '100%', marginBottom: '10px' }}>Show All Stocks</button>
+                        <button onClick={() => runQuickSql('SELECT * FROM holdings')} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '100%', marginBottom: '10px' }}>Show All Holdings</button>
                     </div>
-                    <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', height: '600px', display:'flex', flexDirection:'column' }}>
+                    <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', height: '600px', display: 'flex', flexDirection: 'column' }}>
                         {sqlOutput ? (
-                            <div style={{overflow:'auto', background:'#f8f9fa', padding:'10px', borderRadius:'4px', height:'100%'}}>
-                                <div style={{marginBottom:'10px', display:'flex', justifyContent:'space-between'}}><strong>Result ({sqlOutput.rowCount || 0} rows)</strong><button onClick={() => setSqlOutput(null)} style={{fontSize:'12px', cursor:'pointer', border:'none', background:'none', color:'blue'}}>Clear</button></div>
+                            <div style={{ overflow: 'auto', background: '#f8f9fa', padding: '10px', borderRadius: '4px', height: '100%' }}>
+                                <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}><strong>Result ({sqlOutput.rowCount || 0} rows)</strong><button onClick={() => setSqlOutput(null)} style={{ fontSize: '12px', cursor: 'pointer', border: 'none', background: 'none', color: 'blue' }}>Clear</button></div>
                                 <pre>{JSON.stringify(sqlOutput.rows, null, 2)}</pre>
                             </div>
-                        ) : ( <iframe src="/sql_tool.html" style={{ width: '100%', height: '100%', border: 'none' }} title="SQL Tool"></iframe> )}
+                        ) : (<iframe src="/sql_tool.html" style={{ width: '100%', height: '100%', border: 'none' }} title="SQL Tool"></iframe>)}
                     </div>
                 </div>
             )}
