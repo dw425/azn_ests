@@ -46,6 +46,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
     const [newSector, setNewSector] = useState('Tech');
     const [newVolume, setNewVolume] = useState('1000000');
     const [newFullName, setNewFullName] = useState('');
+    const [newEmail, setNewEmail] = useState('');
 
     // --- INITIAL DATA LOAD ---
     useEffect(() => {
@@ -153,7 +154,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
     // --- ENTITY MANAGEMENT ---
     const handleCreateUser = async (e) => {
         e.preventDefault();
-        try { const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: `${newUser}@example.com`, full_name: newFullName }) }); if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); setNewFullName(''); } else { setMsg(`❌ Error`); } } catch (err) { setMsg(`❌ Error: ${err.message}`); }
+        try { const res = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, email: newEmail || `${newUser}@example.com`, full_name: newFullName }) }); if (res.ok) { setMsg(`✅ User ${newUser} created!`); setNewUser(''); setNewPass(''); setNewFullName(''); setNewEmail(''); } else { setMsg(`❌ Error`); } } catch (err) { setMsg(`❌ Error: ${err.message}`); }
     };
     const handleCreateStock = async (e) => {
         e.preventDefault();
@@ -274,12 +275,13 @@ function AdminDashboard({ onBack, onLoginAs }) {
                 <div style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                     <h3>User Management</h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead><tr style={{ background: '#f8f9fa', textAlign: 'left' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Username</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Full Name</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Role</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Action</th></tr></thead>
+                        <thead><tr style={{ background: '#f8f9fa', textAlign: 'left' }}><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Username</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Full Name</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Email</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Role</th><th style={{ padding: '12px', borderBottom: '2px solid #ddd' }}>Action</th></tr></thead>
                         <tbody>
                             {users.map(u => (
                                 <tr key={u.user_id} style={{ borderBottom: '1px solid #eee' }}>
                                     <td style={{ padding: '12px', color: '#333' }}>{u.username}</td>
                                     <td style={{ padding: '12px', color: '#666' }}>{u.full_name || '—'}</td>
+                                    <td style={{ padding: '12px', color: '#666', fontSize: '13px' }}>{u.email || '—'}</td>
                                     <td style={{ padding: '12px', color: '#333' }}><label style={{cursor:'pointer', display:'flex', alignItems:'center', gap:'5px'}}><input type="checkbox" checked={u.is_admin || false} onChange={() => toggleAdmin(u.user_id, u.is_admin)} /> {u.is_admin ? <span style={{color:'green', fontWeight:'bold'}}>Admin</span> : 'User'}</label></td>
                                     <td style={{ padding: '12px', color: '#333' }}><button onClick={() => onLoginAs(u)} style={{ padding: '5px 10px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', marginRight: '6px' }}>Login As</button><button onClick={() => deleteUser(u.user_id, u.username)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete</button></td>
                                 </tr>
@@ -294,6 +296,7 @@ function AdminDashboard({ onBack, onLoginAs }) {
                     <h3>Create New User</h3>
                     <form onSubmit={handleCreateUser}>
                         <div style={{ marginBottom: '15px' }}><label>Full Name</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newFullName} onChange={e => setNewFullName(e.target.value)} placeholder="John Smith" required /></div>
+                        <div style={{ marginBottom: '15px' }}><label>Email</label><input type="email" style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="john@example.com" required /></div>
                         <div style={{ marginBottom: '15px' }}><label>Username</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newUser} onChange={e => setNewUser(e.target.value)} required /></div>
                         <div style={{ marginBottom: '15px' }}><label>Password</label><input style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }} value={newPass} onChange={e => setNewPass(e.target.value)} required /></div>
                         <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}>Create User</button>
